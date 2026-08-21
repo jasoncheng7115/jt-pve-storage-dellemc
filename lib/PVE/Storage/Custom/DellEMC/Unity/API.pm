@@ -41,8 +41,12 @@ use constant {
     # Unisphere refuses a LUN smaller than this. NOT VERIFIED on hardware,
     # and deliberately rounded UP from what any reference suggests: the cost
     # of being too big is wasted space on a tiny volume, the cost of being
-    # too small is that every EFI disk (4 MiB) and TPM state (4 MiB) fails to
-    # create at all - and with them the whole 'qm create' that asked.
+    # too small is that every EFI disk and TPM state fails to create at all -
+    # and with them the whole 'qm create' that asked. The sizes PVE actually
+    # asks for, read from its own source: an EFI disk is the size of
+    # OVMF_VARS_4M.fd, 540672 bytes; a TPM state and a cloud-init disk are
+    # 4 MiB each. 528 KiB is the smallest thing PVE will ever ask any of
+    # these families for, and it is what caught PowerStore in issue #1.
     MIN_VOLUME_SIZE => 1024 * 1024 * 1024,
 
     # Collections are paged from 1.
@@ -492,10 +496,10 @@ sub align_size {
     my $aligned = int(($bytes + $unit - 1) / $unit) * $unit;
 
     # A LUN below the array's minimum is refused outright, and PVE asks for
-    # genuinely tiny volumes: an EFI disk and a TPM state are 4 MiB each. The
-    # guest sees the size it asked for regardless - PVE reads the image size
-    # from its own metadata, and raw data at the start of a bigger device is
-    # still raw data.
+    # genuinely tiny volumes: 528 KiB for an EFI disk, 4 MiB for a TPM state.
+    # The guest sees the size it asked for regardless - PVE reads the image
+    # size from its own metadata, and raw data at the start of a bigger
+    # device is still raw data.
     $aligned = MIN_VOLUME_SIZE if $aligned < MIN_VOLUME_SIZE;
 
     return $aligned;

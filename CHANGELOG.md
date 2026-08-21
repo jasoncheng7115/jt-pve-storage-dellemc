@@ -7,6 +7,47 @@ Versioning: the patch number increments per release and runs to .99 before
 the minor number moves — 0.7.0, 0.7.1, … 0.7.99, then 0.8.0. Every 0.x
 release is a prerelease; 1.0.0 is the on-hardware test pass.
 
+## [0.8.16~beta1] - 2026-08-21
+
+### Fixed
+- **PowerStore refused every OVMF EFI disk, and so refused every UEFI guest.**
+  Migrating or cloning a UEFI VM onto a `dellpowerstore` storage failed on
+  `efidisk0` while the same VM's ordinary disks went across without
+  complaint — which is what made it read as a migration problem rather than a
+  size one.
+
+  PVE allocates an EFI disk at the size of `OVMF_VARS_4M.fd`, 540672 bytes,
+  and PowerStore rejects any volume below 1 MiB. The reason alignment did not
+  save it is the whole of the defect: **540672 is already an exact multiple of
+  the array's 8 KiB granularity**, so rounding returned it untouched and the
+  array answered *The minimum supported volume size is 1048576*. A granularity
+  and a minimum are different rules, and this plugin only had the first one.
+
+  `align_size` now lifts a request to the array's minimum before it rounds, on
+  the create path and the resize path alike. The guest is unaffected: PVE
+  reads an image's size from its own metadata, and raw data at the start of a
+  larger device is still raw data — which is how LVM's 4 MiB extents have
+  always carried a 528 KiB EFI disk.
+
+  Reported — with the array's own refusal quoted, the reproduction, and a
+  working fix — by **Alexander Gott ([@alexandergott-afk](https://github.com/alexandergott-afk))**
+  in [issue #1](https://github.com/jasoncheng7115/jt-pve-storage-dellemc/issues/1).
+  Thank you.
+
+### Changed
+- **The size floor is now asked of every family, not only the one that
+  failed.** Unity has had this minimum since it was written; PowerVault and
+  PowerFlex have granularities well above 1 MiB and were never exposed. Only
+  PowerStore combined a small granularity with an unstated minimum. The
+  cross-family test in `t/13-hostile.t` now carries each family's minimum
+  beside its granularity and asks all four what they do with a 540672-byte
+  request — a guard earned on one family is worth nothing until it is asked
+  of the others.
+- The sizes PVE actually asks for are now recorded from PVE's own source
+  rather than from memory: an EFI disk is 540672 bytes, a TPM state and a
+  cloud-init disk are 4 MiB each. 528 KiB is the smallest volume any of these
+  families will ever be asked for.
+
 ## [0.8.15~beta1] - 2026-08-17
 
 ### Fixed

@@ -1,3 +1,22 @@
+jt-pve-storage-dellemc (0.8.16~beta1-1) unstable; urgency=high
+
+  * BETA RELEASE. Not for production use.
+  * Fixed: PowerStore refused every OVMF EFI disk, so no UEFI guest could be
+    migrated or cloned onto the storage while its ordinary disks went across
+    without complaint. PVE allocates an EFI disk at the size of
+    OVMF_VARS_4M.fd - 540672 bytes - and PowerStore rejects any volume below
+    1 MiB. 540672 is already an exact multiple of the array.s 8 KiB
+    granularity, so rounding had nothing to say about it and the size reached
+    the array unchanged. align_size now lifts a request to the array minimum
+    before it rounds. Reported with the array.s own refusal quoted, and with
+    a working fix, by Alexander Gott (@alexandergott-afk) in GitHub issue #1.
+  * Unity has had this floor since it was written; PowerVault and PowerFlex
+    have granularities above 1 MiB and were never exposed. The guard is now
+    stated once per family in t/13-hostile.t, which asks every family what it
+    does with a 540672-byte request rather than only the one that failed.
+
+ -- Jason Cheng <jason@jason.tools>  Fri, 21 Aug 2026 16:00:00 +0800
+
 jt-pve-storage-dellemc (0.8.15~beta1-1) unstable; urgency=high
 
   * BETA RELEASE. Not for production use.

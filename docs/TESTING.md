@@ -50,9 +50,18 @@ Still not captured from that array, and therefore still inferred:
 
 ## Hardware verification status
 
-**Nothing in this project has been run against a physical PowerStore.**
-One PowerVault ME4024 has run it; see the section above for what that
-established and what it did not.
+**A customer's PowerStore 500T over FC has run parts of this**, and one
+PowerVault ME4024 has run more of it; see the section above for what the ME
+established and what it did not. What the PowerStore has established so far:
+
+| Established on a real PowerStore | How |
+|---|---|
+| A host object is adopted and its FC port names must be **colon-separated** | the array refused the run-together form outright (lesson 69) |
+| `logical_unit_number` must be a JSON **integer**, not a string | the array's schema validation named the field (lesson 70) |
+| Volume create and attach, and the data path for ordinary VM disks | issue #1 reports ordinary disks migrating successfully |
+| **The minimum volume size is 1048576 bytes**, separately from the 8 KiB granularity | the array refused a 540672-byte EFI disk and quoted the limit (issue #1, lesson 80) |
+
+Snapshots, rollback and this plugin's migration paths remain unrun there.
 
 Everything below is `NOT VERIFIED ON HARDWARE` until it has been executed on a
 real array and the result recorded here together with the PowerStore OS
@@ -69,6 +78,7 @@ version it was observed on.
 | WWN to multipath WWID conversion | `PowerStore/API.pm` | NOT VERIFIED ON HARDWARE |
 | Volume name length and character limits | `PowerStore/Naming.pm` | NOT VERIFIED ON HARDWARE |
 | LUN id assignment behaviour | `PowerStore/API.pm` | NOT VERIFIED ON HARDWARE |
+| Volume size constraints (8 KiB granularity, **1 MiB minimum**) | `PowerStore/API.pm` | **VERIFIED** — the minimum by the array's own refusal of a 540672-byte EFI disk (issue #1). The granularity is still only from the developers guide |
 | Multipath device settings | `DellPowerStorePlugin.pm` | NOT VERIFIED ON HARDWARE |
 | Fibre Channel data path | everywhere | NOT VERIFIED ON HARDWARE |
 | What a restore does to snapshots taken after the restore point | `DellPowerStorePlugin.pm`, `DellPowerVaultPlugin.pm`, `DellPowerFlexPlugin.pm` | NOT VERIFIED ON HARDWARE |

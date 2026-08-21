@@ -410,27 +410,45 @@ my $TMP = tempdir(CLEANUP => 1);
 # ---------------------------------------------------------------------------
 # Size alignment
 #
-# Each family rounds volume sizes to its own granularity. Rounding the wrong
-# way is silent: PVE believes the disk is the size it asked for, the guest
-# fills it, and the write past the end is the first anyone hears of it. So the
-# only rule that matters is that the result is never smaller than the request.
+# Each family rounds volume sizes to its own granularity AND lifts them to its
+# own minimum, and the two are different rules. Rounding the wrong way is
+# silent: PVE believes the disk is the size it asked for, the guest fills it,
+# and the write past the end is the first anyone hears of it. Missing the
+# minimum is loud but late: the array refuses the create, and it refuses it
+# for the one size PVE asks for that no amount of alignment moves.
+#
+# EFI_DISK_BYTES is that size. PVE allocates an OVMF EFI disk at the size of
+# OVMF_VARS_4M.fd, and 540672 happens to be an exact multiple of 8 KiB, so on
+# PowerStore alignment returned it unchanged and every UEFI guest failed to
+# migrate (issue #1). It is the smallest thing PVE will ever ask for, so every
+# family is asked about it by name.
 # ---------------------------------------------------------------------------
+
+use constant EFI_DISK_BYTES => 540672;
 
 {
     require PVE::Storage::Custom::DellEMC::PowerStore::API;
     require PVE::Storage::Custom::DellEMC::PowerVault::API;
     require PVE::Storage::Custom::DellEMC::PowerFlex::API;
+    require PVE::Storage::Custom::DellEMC::Unity::API;
 
+    # name, class, granularity, the smallest volume the array will accept
     my @families = (
-        ['PowerStore', 'PVE::Storage::Custom::DellEMC::PowerStore::API', 8 * 1024],
-        ['PowerVault', 'PVE::Storage::Custom::DellEMC::PowerVault::API', 4 * 1024 * 1024],
-        ['PowerFlex',  'PVE::Storage::Custom::DellEMC::PowerFlex::API',  8 * 1024 ** 3],
+        ['PowerStore', 'PVE::Storage::Custom::DellEMC::PowerStore::API',
+            8 * 1024,          1024 * 1024],
+        ['PowerVault', 'PVE::Storage::Custom::DellEMC::PowerVault::API',
+            4 * 1024 * 1024,   4 * 1024 * 1024],
+        ['PowerFlex',  'PVE::Storage::Custom::DellEMC::PowerFlex::API',
+            8 * 1024 ** 3,     8 * 1024 ** 3],
+        ['Unity',      'PVE::Storage::Custom::DellEMC::Unity::API',
+            8 * 1024,          1024 ** 3],
     );
 
     for my $family (@families) {
-        my ($name, $class, $unit) = @$family;
+        my ($name, $class, $unit, $min) = @$family;
 
-        for my $request ($unit - 1, $unit, $unit + 1, 1, 1024, 32 * 1024 ** 3) {
+        for my $request ($unit - 1, $unit, $unit + 1, 1, 1024,
+                         EFI_DISK_BYTES, $min, $min + 1, 32 * 1024 ** 3) {
             my $aligned = eval { $class->align_size($request) };
             next unless defined $aligned;   # a family may refuse a size outright
 
@@ -438,9 +456,22 @@ my $TMP = tempdir(CLEANUP => 1);
                 "$name: $request bytes never rounds DOWN");
             is($aligned % $unit, 0,
                 "$name: $request bytes lands on the granularity");
+            cmp_ok($aligned, '>=', $min,
+                "$name: $request bytes is never below the array's minimum");
+
+            # Over-allocation is bounded by one granule -- but only once the
+            # request has cleared the minimum. Below it the answer is the
+            # minimum by construction, and that gap is the point of it.
             cmp_ok($aligned - $request, '<', $unit,
-                "$name: $request bytes is not over-allocated by a whole unit");
+                "$name: $request bytes is not over-allocated by a whole unit")
+                if $request >= $min;
         }
+
+        # The regression itself, stated as the array states it. On PowerStore
+        # this size is already aligned, so nothing about the granularity was
+        # ever going to lift it.
+        cmp_ok($class->align_size(EFI_DISK_BYTES), '>=', $min,
+            "$name: a PVE EFI disk (540672 bytes) reaches the array minimum");
     }
 
     # PowerVault documents a 128 TiB ceiling. Asking for more has to be an

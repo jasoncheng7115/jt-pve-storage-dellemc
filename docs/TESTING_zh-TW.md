@@ -46,7 +46,18 @@ status`（3.2 秒，容量與 GUI 一致）、連續數顆 `pvesm alloc`（LUN 4
 
 ## 實機驗證狀態
 
-**本專案的任何部分都尚未在實體 PowerStore 上執行過。**
+**客戶的一台走 FC 的 PowerStore 500T 已經跑過本專案的一部分**，另有一台 PowerVault
+ME4024 跑過更多；ME 那台建立了什麼、又沒有建立什麼，見上一節。PowerStore 這台目前
+確立的是：
+
+| 已在實體 PowerStore 上確立 | 依據 |
+|---|---|
+| host 物件會被接管，而它的 FC 連接埠名稱必須是**冒號分隔**的形式 | 儲存伺服器直接拒絕了連在一起的寫法（教訓 69） |
+| `logical_unit_number` 必須是 JSON **整數**，不能是字串 | 儲存伺服器的結構描述驗證直接點名了這個欄位（教訓 70） |
+| 磁碟區的建立與掛載，以及一般 VM 磁碟的資料路徑 | issue #1 回報一般磁碟遷移成功 |
+| **最小磁碟區大小是 1048576 位元組**，這與 8 KiB 對齊單位是兩回事 | 儲存伺服器拒絕了一顆 540672 位元組的 EFI 磁碟，並回報了這個下限（issue #1、教訓 80） |
+
+快照、倒回，以及本外掛的遷移路徑，在那台上都還沒有跑過。
 
 以下項目在實機執行、並把結果連同當時的 PowerStore OS 版本記錄到本文件之前，一律為 `NOT VERIFIED ON HARDWARE`。
 
@@ -61,6 +72,7 @@ status`（3.2 秒，容量與 GUI 一致）、連續數顆 `pvesm alloc`（LUN 4
 | WWN 轉 multipath WWID | `PowerStore/API.pm` | NOT VERIFIED ON HARDWARE |
 | Volume 名稱長度與字元限制 | `PowerStore/Naming.pm` | NOT VERIFIED ON HARDWARE |
 | LUN ID 配發行為 | `PowerStore/API.pm` | NOT VERIFIED ON HARDWARE |
+| 磁碟區大小限制（8 KiB 對齊單位、**1 MiB 最小值**） | `PowerStore/API.pm` | **已驗證** —— 最小值來自儲存伺服器自己拒絕一顆 540672 位元組 EFI 磁碟時的回應（issue #1）。對齊單位目前仍只有開發者指南這一個來源 |
 | multipath device 參數 | `DellPowerStorePlugin.pm` | NOT VERIFIED ON HARDWARE |
 | Fibre Channel 資料路徑 | 全部 | NOT VERIFIED ON HARDWARE |
 | 還原之後，比還原點更新的快照會怎麼樣 | `DellPowerStorePlugin.pm`、`DellPowerVaultPlugin.pm`、`DellPowerFlexPlugin.pm` | NOT VERIFIED ON HARDWARE |

@@ -38,6 +38,18 @@ use constant {
     # PowerStore requires volume sizes to be a multiple of 8 KiB.
     SIZE_GRANULARITY => 8192,
 
+    # And refuses one below 1 MiB outright, however well it is aligned.
+    # PVE asks for less than that exactly once, and it is not a corner case:
+    # an OVMF EFI disk is allocated at the size of OVMF_VARS_4M.fd, which is
+    # 540672 bytes (528 KiB) -- and 540672 is ALREADY a multiple of 8 KiB, so
+    # rounding leaves it untouched and the array answers "The minimum
+    # supported volume size is 1048576". Every UEFI guest moved to this
+    # storage failed on its EFI disk while its ordinary disks migrated.
+    # Reported against 0.8.15 from a customer's PowerStore (issue #1); Dell's
+    # own ansible-powerstore documents the same limit ("Minimum volume size
+    # is 1MB").
+    MIN_VOLUME_SIZE => 1024 * 1024,
+
     # The developers guide documents the pagination limit as 1 to 2000, 100
     # by default, and answers 206 Partial Content with a Content-Range header
     # when the collection is larger. 200 keeps a poll's response small while
@@ -503,6 +515,14 @@ sub get_managed_capacity {
 # number acquires a string as well.
 sub align_size {
     my ($class, $bytes) = @_;
+
+    # The floor is applied FIRST, and it is not covered by the rounding: the
+    # size that fails is one the granularity has nothing to say about. The
+    # guest sees the size it asked for either way -- PVE reads an image's
+    # size from its own metadata, and raw data at the start of a larger
+    # device is still raw data, which is how LVM's 4 MiB extents have always
+    # carried a 528 KiB EFI disk.
+    $bytes = MIN_VOLUME_SIZE if $bytes < MIN_VOLUME_SIZE;
 
     my $granularity = SIZE_GRANULARITY;
     my $remainder = $bytes % $granularity;

@@ -137,12 +137,32 @@ sub make_api {
 
 # PowerStore refuses a size that is not a multiple of 8 KiB. Rounding DOWN
 # would silently hand back a volume smaller than PVE asked for.
-is($API->align_size(8192), 8192, 'an aligned size is unchanged');
-is($API->align_size(1), 8192, 'a tiny size rounds up to one granule');
-is($API->align_size(8193), 16384, 'an unaligned size rounds up');
+is($API->align_size(8192 + 1048576), 8192 + 1048576, 'an aligned size is unchanged');
+is($API->align_size(8193 + 1048576), 16384 + 1048576, 'an unaligned size rounds up');
 is($API->align_size(34359738368), 34359738368, '32 GiB is already aligned');
 is($API->align_size(1024 * 1024), 1048576, '1 MiB is already aligned');
 ok($API->align_size(12345) >= 12345, 'alignment never shrinks a request');
+
+# The array refuses anything below 1 MiB however well it is aligned, and PVE
+# asks for exactly one such size: an OVMF EFI disk, allocated at the size of
+# OVMF_VARS_4M.fd. 540672 is an exact multiple of 8 KiB, so the granularity
+# had nothing to say about it and the create was refused with "The minimum
+# supported volume size is 1048576" -- every UEFI guest failed to migrate here
+# while its ordinary disks went across (issue #1).
+is($API->align_size(540672), 1048576,
+    'a PVE EFI disk is lifted to the array minimum, not left aligned-and-refused');
+is($API->align_size(1), 1048576, 'and so is any smaller request');
+is($API->align_size(1048576 + 1), 1048576 + 8192,
+    'above the minimum the granularity takes over again');
+
+# Lesson 70: a size goes into a JSON body as a NUMBER. The floor must not be
+# the path that hands the array a string.
+{
+    require JSON;
+    my $encoded = JSON->new->encode({ size => $API->align_size('540672') });
+    like($encoded, qr/"size":1048576/,
+        'the floored size encodes as a number, not a string');
+}
 
 # The multipath map name is '3' plus the NAA designator.
 is($API->wwn_to_wwid('naa.68ccf09800a1b2c3d4e5f60718293a4b'),
@@ -499,9 +519,69 @@ is($API->wwn_to_wwid(undef), undef, 'undef WWN');
 {
     # An unaligned request must be rounded up before it reaches the array.
     my ($api, $ua) = make_api(handler => sub { json_response(201, { id => 'x' }) });
-    $api->volume_create('pve-ps1-100-disk1', 1000);
-    is(decode_json($ua->last_request->content)->{size}, 8192,
+    $api->volume_create('pve-ps1-100-disk1', 1048576 + 1000);
+    is(decode_json($ua->last_request->content)->{size}, 1048576 + 8192,
         'the size is aligned on the way out');
+}
+
+{
+    # ...and one below the array's 1 MiB minimum is lifted to it. This is the
+    # whole of issue #1: a 540672-byte EFI disk is ALREADY 8 KiB-aligned, so
+    # only the floor stands between it and a refused create.
+    my ($api, $ua) = make_api(handler => sub { json_response(201, { id => 'x' }) });
+    $api->volume_create('pve-ps1-100-disk2', 540672);
+    is(decode_json($ua->last_request->content)->{size}, 1048576,
+        'an EFI disk reaches the array as the minimum volume size');
+}
+
+{
+    # A resize is the same request in the other direction, and it goes through
+    # the same floor.
+    my ($api, $ua) = make_api(handler => sub { json_response(200, {}) });
+    $api->volume_resize('vol-1', 540672);
+    is(decode_json($ua->last_request->content)->{size}, 1048576,
+        'a resize below the minimum is lifted too');
+}
+
+{
+    # ...and the same question asked of a fixture that REFUSES what the real
+    # array refuses, rather than one that records whatever it is sent.
+    #
+    # Lesson 79: a fake that accepts everything restates the assumption under
+    # test. The version of this fixture that only remembered the body would
+    # pass an assertion about the number and say nothing about whether the
+    # array would have taken it. This one answers 422 below 1 MiB, with
+    # PowerStore's own error envelope and the wording it used on the
+    # customer's array in issue #1 -- so removing the floor fails here as a
+    # REFUSED CREATE, which is what the operator actually saw.
+    my $refusing = sub {
+        my ($req, $key) = @_;
+        return json_response(200, []) unless $key eq 'POST /api/rest/volume';
+
+        my $size = decode_json($req->content)->{size};
+        return json_response(422, { messages => [{
+            code           => '0xE0201001',
+            severity       => 'Error',
+            message_l10n   => 'The minimum supported volume size is 1048576.',
+        }] }) if !defined $size || $size < 1048576;
+
+        return json_response(201, { id => 'efi-volume-id' });
+    };
+
+    my ($api) = make_api(handler => $refusing);
+
+    # 540672 is what PVE asks for, and it is already 8 KiB-aligned.
+    my $id = eval { $api->volume_create('pve-ps1-100-efi', 540672) };
+    is($id, 'efi-volume-id',
+        'an EFI disk is accepted by an array that enforces its own minimum')
+        or diag("the array refused it: $@");
+
+    # The fixture has to be capable of refusing, or the assertion above is
+    # worth nothing. Prove it refuses a size the floor cannot have produced.
+    my ($api2) = make_api(handler => $refusing);
+    ok(!eval { $api2->_request('POST', '/volume',
+            { name => 'pve-ps1-100-x', size => 8192 }); 1 },
+        '...and that same fixture does refuse a sub-minimum create');
 }
 
 {

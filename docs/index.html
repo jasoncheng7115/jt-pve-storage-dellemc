@@ -171,7 +171,7 @@
     <div class="hero__glow"></div>
     <div class="hero__glow-left"></div>
     <div class="hero__content">
-        <div class="hero__badge">v0.8.15~beta1 <span class="hero__badge-sep"></span> MIT License</div>
+        <div class="hero__badge">v0.8.16~beta1 <span class="hero__badge-sep"></span> MIT License</div>
         <h1 class="hero__title">jt-pve-storage-dellemc</h1>
         <p class="hero__project-desc">
             <span class="lang-en">Dell EMC Storage Plugins for Proxmox VE</span>
@@ -1138,8 +1138,8 @@ DellPowerFlexPlugin                  <span class="comment"># no SCSI LUN, no mul
         <span class="lang-zh">驗證狀態</span>
     </h2>
     <p class="section-subtitle">
-        <span class="lang-en">3,141 unit tests run without an array or a device. What they cannot tell you is whether the endpoints exist, whether the field names are right, or whether a device ever appears &mdash; only an array can, and exactly one has.</span>
-        <span class="lang-zh">3,141 個單元測試不需要儲存伺服器或實體裝置即可執行。它們無法告訴你的是：端點是否存在、欄位名稱是否正確、裝置到底會不會出現 &mdash; 那隻有儲存伺服器能回答，而目前只有一台回答過。</span>
+        <span class="lang-en">3,222 unit tests run without an array or a device. What they cannot tell you is whether the endpoints exist, whether the field names are right, or whether a device ever appears &mdash; only an array can, and exactly one has.</span>
+        <span class="lang-zh">3,222 個單元測試不需要儲存伺服器或實體裝置即可執行。它們無法告訴你的是：端點是否存在、欄位名稱是否正確、裝置到底會不會出現 &mdash; 那隻有儲存伺服器能回答，而目前只有一台回答過。</span>
     </p>
 
     <h3>
@@ -1299,6 +1299,15 @@ DellPowerFlexPlugin                  <span class="comment"># no SCSI LUN, no mul
         <span class="lang-en">Changelog</span>
         <span class="lang-zh">變更紀錄</span>
     </h2>
+
+    <div class="changelog-entry">
+        <div class="changelog-version">v0.8.16~beta1</div>
+        <div class="changelog-date">2026-08-21</div>
+        <div class="changelog-summary">
+            <span class="lang-en">PowerStore refused every OVMF EFI disk, so no UEFI guest could be migrated or cloned onto the storage while its ordinary disks went across without complaint. PVE allocates an EFI disk at 540672 bytes and PowerStore rejects anything below 1 MiB &mdash; and 540672 is already an exact multiple of the array's 8 KiB granularity, so rounding had nothing to say about it. A granularity and a minimum are different rules. Reported with a working fix by Alexander Gott (@alexandergott-afk), issue #1 &mdash; thank you.</span>
+            <span class="lang-zh">PowerStore 拒絕了每一顆 OVMF EFI 磁碟，於是沒有任何一台 UEFI 客體能遷移或複製到這個儲存上，而同一台虛擬機的一般磁碟卻毫無阻礙地搬了過去。PVE 配置 EFI 磁碟的大小是 540672 位元組，而 PowerStore 會拒絕任何小於 1 MiB 的磁碟區 &mdash; 偏偏 540672 本身就是儲存伺服器 8 KiB 對齊單位的整數倍，所以進位什麼也沒做。對齊單位與最小值是兩條不同的規則。由 Alexander Gott（@alexandergott-afk）在 issue #1 回報並附上可用的修正 &mdash; 在此致謝。</span>
+        </div>
+    </div>
 
     <div class="changelog-entry">
         <div class="changelog-version">v0.8.15~beta1</div>
