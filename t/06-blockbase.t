@@ -14,12 +14,18 @@ use warnings;
 
 use Test::More;
 use File::Temp qw(tempdir);
+use POSIX ();
 
 BEGIN {
     eval { require PVE::Storage::Plugin; 1 }
         or plan skip_all => 'PVE::Storage::Plugin is not available (not a Proxmox VE node)';
 }
 
+# Below the guard, deliberately. A `use` above it is compiled before the
+# skip_all can run, so on a machine without Proxmox VE the file dies at
+# compile time instead of skipping - green here, exit 255 in CI, which is
+# lesson 46 exactly.
+use PVE::JSONSchema ();
 use PVE::Storage::Custom::DellEMC::Common::BlockBase;
 
 my $TMP = tempdir(CLEANUP => 1);
@@ -1774,6 +1780,123 @@ SKIP: {
         '... while still naming the storage and the address');
     cmp_ok(length($later), '<', length($first),
         '... and is shorter than the first');
+}
+
+# ---------------------------------------------------------------------------
+# The config backup does not freeze the guest
+#
+# volume_snapshot runs between PVE's guest-fsfreeze-freeze and its thaw, so
+# whatever it does, the guest does no I/O while it happens. The array snapshot
+# belongs there and is instant; the configuration copy creates a volume, maps
+# it, rescans the transport, waits for a device and makes a filesystem on it,
+# and a customer measured 8 seconds of frozen guest for exactly that (issue
+# #2).
+#
+# So the property under test is a TIMING one, and it is measured rather than
+# asserted about: the backup is made to take a second, and the call that
+# starts it has to come back in a small fraction of that. Then the work has to
+# actually happen, or "fast" would just mean "skipped".
+# ---------------------------------------------------------------------------
+
+{
+    my $marker = "$TMP/config-backup-ran";
+    my $conf   = "$TMP/fake-vm.conf";
+    open(my $cfh, '>', $conf) or die $!;
+    print $cfh "name: fake\n";
+    close $cfh;
+
+    no warnings 'redefine';
+    local *Test::Plugin::_vm_config_path = sub { $conf };
+    local *Test::Plugin::_backup_vm_config = sub {
+        my ($class, $scfg, $storeid, $vmid, $snap, %opts) = @_;
+        select(undef, undef, undef, 1.0);
+        open(my $fh, '>', $marker) or return 0;
+        # Write what the caller handed us, so the test can prove the content
+        # was read in the parent rather than in the background process.
+        print $fh ($opts{content} // '(no content passed)');
+        close $fh;
+        return 1;
+    };
+
+    my $scfg = { 'dell-portal' => '10.0.0.1', 'dell-prefix' => 'pve' };
+
+    my $started = time();
+    my $rc = Test::Plugin->_backup_vm_config_detached($scfg, 't1', 404, 'snap1');
+    my $elapsed = time() - $started;
+
+    is($rc, 1, 'the detached config backup reports that it started');
+    cmp_ok($elapsed, '<', 1,
+        'volume_snapshot does not wait for it - the guest thaws immediately')
+        or diag("it blocked for ${elapsed}s, which is time the guest is frozen");
+
+    # It really ran, in the background. Without this the test above would pass
+    # just as happily on a config backup that had been deleted outright.
+    my $waited = 0;
+    while (!-f $marker && $waited < 15) {
+        select(undef, undef, undef, 0.2);
+        $waited += 0.2;
+    }
+    ok(-f $marker, 'and the work did happen, after the call returned')
+        or diag("nothing appeared at $marker after ${waited}s");
+
+    my $written = do { open(my $fh, '<', $marker) or die $!; local $/; <$fh> };
+    is($written, "name: fake\n",
+        'the configuration was read in the frozen process and handed over, so'
+      . ' the copy is the one the snapshot was taken of');
+
+    # The intermediate child is reaped here; the working process is init's.
+    # A child left unreaped is a zombie in a pvedaemon worker.
+    my $stray = waitpid(-1, POSIX::WNOHANG());
+    ok($stray <= 0, 'no unreaped child is left behind')
+        or diag("waitpid returned $stray, so something was not reaped");
+}
+
+# ---------------------------------------------------------------------------
+# One background process per snapshot, not one per disk
+#
+# PVE snapshots every disk of a guest in one loop in one process. Without a
+# claim, a three-disk VM starts three background copies of one configuration,
+# and they race to create the same volume.
+# ---------------------------------------------------------------------------
+
+{
+    is(Test::Plugin->_config_backup_claim('t1', 500, 'snapA'), 1,
+        'the first disk of a snapshot claims the config backup');
+    is(Test::Plugin->_config_backup_claim('t1', 500, 'snapA'), 0,
+        '... and the second disk of the same snapshot does not');
+    is(Test::Plugin->_config_backup_claim('t1', 500, 'snapB'), 1,
+        '... while the next snapshot of that VM does');
+    is(Test::Plugin->_config_backup_claim('t1', 501, 'snapA'), 1,
+        '... and so does another VM');
+}
+
+# ---------------------------------------------------------------------------
+# Snapshots not worth a configuration copy
+#
+# 'vzdump' is created, read through and deleted within one backup run, and
+# PVE::LXC::Config reserves the name so it cannot be a user's. Detached, a
+# copy beside it is an orphan: the delete looks for a config volume that the
+# background process has not created yet.
+# ---------------------------------------------------------------------------
+
+{
+    is(Test::Plugin->_is_transient_snapshot('vzdump'), 1,
+        "vzdump's own snapshot gets no config copy");
+    is(Test::Plugin->_is_transient_snapshot('pve.rollback'), 1,
+        '... nor does one this plugin made for itself');
+    is(Test::Plugin->_is_transient_snapshot(''), 1, '... nor an empty name');
+    is(Test::Plugin->_is_transient_snapshot(undef), 1, '... nor no name at all');
+    is(Test::Plugin->_is_transient_snapshot('before-upgrade'), 0,
+        'an ordinary snapshot does get one');
+
+    # A dot is what makes the fence one a user cannot cross: PVE validates a
+    # snapshot name as a configid, which admits no dot. Asserted against PVE's
+    # own validator rather than against a copy of the rule.
+    my $rejected = !eval {
+        PVE::JSONSchema::pve_verify_configid('pve.rollback'); 1
+    };
+    ok($rejected, 'PVE itself refuses a snapshot name containing a dot, which'
+      . ' is why one identifies a snapshot this plugin made');
 }
 
 done_testing();

@@ -7,6 +7,67 @@ Versioning: the patch number increments per release and runs to .99 before
 the minor number moves — 0.7.0, 0.7.1, … 0.7.99, then 0.8.0. Every 0.x
 release is a prerelease; 1.0.0 is the on-hardware test pass.
 
+## [0.8.17~beta1] - 2026-08-21
+
+### Fixed
+- **A snapshot froze the running guest for about eight seconds.**
+  `qm snapshot <vmid> <name> --vmstate 0` on a VM with the guest agent
+  enabled stopped the guest completely: no network, no console, for 8 to 10
+  seconds.
+
+  `volume_snapshot` runs between PVE's `guest-fsfreeze-freeze` and its thaw
+  (`PVE::AbstractConfig::snapshot_create`), so **everything it does is time
+  the guest does no I/O**. The array snapshot belongs there and cost 0.00s.
+  The VM configuration backup, which is on by default, does not belong there
+  at all: it creates a volume on the array, maps it, rescans the transport,
+  waits for a multipath device, makes a filesystem on it and mounts it.
+
+  That work now happens in a detached background process. The freeze covers
+  the array snapshot and nothing else. The copy itself is unchanged and
+  `pve-dell-config-get` reads it exactly as before; it simply appears a few
+  seconds after the snapshot instead of holding the guest until it is there.
+
+  Reported, with timestamps that isolated the cost precisely, by
+  **Alexander Gott ([@alexandergott-afk](https://github.com/alexandergott-afk))**
+  in [issue #2](https://github.com/jasoncheng7115/jt-pve-storage-dellemc/issues/2).
+  Thank you.
+
+- **The one knob for it lengthened the freeze.** `dell-config-backup-timeout`
+  was described as keeping a slow fabric from stalling a snapshot, so an
+  operator on a slow fabric would raise it — and every second of it was a
+  second of frozen guest. Its maximum of 60 also reached
+  qemu-guest-agent's own fsfreeze timeout, past which the guest thaws itself
+  and the snapshot is no longer consistent while still reporting success. The
+  wait now happens after the thaw, so the option means what it says.
+
+- **The documentation offered SAS as a PowerVault data path.** Every document
+  listed it beside iSCSI and FC, and `docs/TESTING.md` filed it under things
+  awaiting hardware. It was never that: `dell-protocol`'s enum is `iscsi`,
+  `fc`, `sdc`, `nvme`, so a SAS storage cannot be configured at all, and there
+  is no SAS code anywhere. "Not verified" and "not implemented" are different
+  claims and a reader plans differently around each. The documents now say
+  which this is, and what implementing it would actually involve.
+
+### Changed
+- No configuration copy is made beside a `vzdump` snapshot. That snapshot is
+  created, read through and deleted inside one backup run, so a copy of the
+  configuration beside it is worth nothing — and once the copy is made in the
+  background it is worse than nothing, because the snapshot delete looks for a
+  volume the background process has not created yet.
+- One background process per snapshot rather than one per disk. PVE snapshots
+  every disk of a guest in one loop in one process, so a three-disk VM started
+  three copies of one configuration, racing to create the same volume.
+
+### Testing
+- `t/06-blockbase.t` measures the property the defect was about: the config
+  backup is made to take a second, and the call that starts it has to return
+  in a fraction of that — then the work has to actually happen, because "fast"
+  would otherwise also describe removing the feature. It also asserts no
+  unreaped child is left behind, which a `local $SIG{CHLD} = 'IGNORE'` would
+  not have given.
+- `t/16-docs.t` reads `dell-protocol`'s enum and fails any data-path cell that
+  names a protocol an operator could not configure.
+
 ## [0.8.16~beta1] - 2026-08-21
 
 ### Fixed

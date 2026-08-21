@@ -6,14 +6,14 @@ Dell EMC storage plugins for Proxmox VE.
 
 > ## ⚠️ BETA SOFTWARE — READ BEFORE INSTALLING
 >
-> **This is a beta release (0.8.16~beta1). One array has run it**, and only
+> **This is a beta release (0.8.17~beta1). One array has run it**, and only
 > one: a PowerVault ME4024 on firmware `GT280R011-01` over Fibre Channel,
 > which as of 0.7.65 passes the whole of the first-run test and, at
 > 0.7.66, the lifecycle items beyond it — a guest OS booting off an array
 > volume, growing a disk, `vzdump --mode snapshot` with restore, an LXC
 > container, and a node reboot. **Everything
 > else is still unverified against hardware** — PowerStore and PowerFlex
-> entirely, and on PowerVault the iSCSI and SAS paths, since that array ran
+> entirely, and on PowerVault the iSCSI path, since that array ran
 > FC. [docs/TESTING.md](docs/TESTING.md) names each item and says which it
 > is; read it before trusting any of this.
 >
@@ -41,11 +41,11 @@ the unit an operator actually thinks about.
 
 ## Project status
 
-> **Version 0.8.16~beta1 — three storage types are code complete. One of
+> **Version 0.8.17~beta1 — three storage types are code complete. One of
 > them has passed a full run on real hardware: PowerVault ME, over Fibre
 > Channel, on an ME4024.**
 > PowerStore and PowerFlex have never been run against an array at all, and
-> neither have PowerVault's iSCSI and SAS paths — for those, every
+> neither has PowerVault's iSCSI path — for those, every
 > array-facing detail (REST paths and field names, the SCSI vendor and
 > product strings, the WWN to WWID conversion) is still unverified. So this
 > remains a release to test with, on a non-production cluster and a
@@ -60,7 +60,7 @@ the unit an operator actually thinks about.
 | 3 | PowerStore REST API client | **done** |
 | 4 | `dellpowerstore` plugin, recovery tool, docs | **code done**, on-hardware pass outstanding |
 | 5 | FC verification, PVE 9.2 verification, 1.0.0 release | FC **verified** on a PowerVault ME4024; 1.0.0 still needs the other families |
-| 6 | `dellpowervault` plugin for PowerVault ME4/ME5 | **on-hardware pass on an ME4024 over FC** (0.7.65); iSCSI and SAS outstanding |
+| 6 | `dellpowervault` plugin for PowerVault ME4/ME5 | **on-hardware pass on an ME4024 over FC** (0.7.65); iSCSI outstanding, SAS not implemented |
 | 7 | `dellpowerflex` plugin, NVMe/TCP and SDC | **code done**, on-hardware pass outstanding |
 | 8 | `dellunity` plugin for Unity XT | **code done**, on-hardware pass outstanding |
 | 9+ | PowerMax | not started |
@@ -75,7 +75,7 @@ an API client, not a restructuring.
 | Order | Family | PVE storage type | Data path | Status |
 |---|---|---|---|---|
 | 1 | **PowerStore** | `dellpowerstore` | iSCSI / FC (dm-multipath) | **in development** |
-| 2 | **PowerVault ME4/ME5** | `dellpowervault` | iSCSI / FC / SAS (dm-multipath) | **in development** |
+| 2 | **PowerVault ME4/ME5** | `dellpowervault` | iSCSI / FC (dm-multipath) | **in development** |
 | 3 | **PowerFlex** | `dellpowerflex` | NVMe/TCP or SDC | **in development** |
 | 4 | **Unity XT** | `dellunity` | iSCSI / FC (dm-multipath) | **in development** |
 | 5 | PowerMax | `dellpowermax` | FC / iSCSI (dm-multipath), NVMe/FC and NVMe/TCP (NVMe-oF) | planned |

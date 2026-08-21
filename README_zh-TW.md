@@ -6,7 +6,7 @@ Dell EMC 儲存伺服器的 Proxmox VE 儲存外掛。
 
 > ## ⚠️ BETA 版軟體 —— 安裝前請務必閱讀
 >
-> **這是 beta 版（0.8.16~beta1），而且只有一台儲存伺服器跑過它**：一台韌體為 `GT280R011-01`、走 Fibre Channel 的 PowerVault ME4024，自 0.7.65 起完整通過首次執行測試，並在 0.7.66 通過其後的生命週期項目 —— 客體作業系統從儲存伺服器 volume 開機、擴充磁碟、`vzdump --mode snapshot` 與還原、LXC 容器，以及節點重開機。**其餘的一切都尚未經過實機驗證** —— PowerStore 與 PowerFlex 完全沒有，PowerVault 這邊的 iSCSI 與 SAS 路徑也沒有，因為那台儲存伺服器走的是 FC。[docs/TESTING_zh-TW.md](docs/TESTING_zh-TW.md) 逐項列出了哪些是哪些；在信任這裡任何一項之前，請先讀它。
+> **這是 beta 版（0.8.17~beta1），而且只有一台儲存伺服器跑過它**：一台韌體為 `GT280R011-01`、走 Fibre Channel 的 PowerVault ME4024，自 0.7.65 起完整通過首次執行測試，並在 0.7.66 通過其後的生命週期項目 —— 客體作業系統從儲存伺服器 volume 開機、擴充磁碟、`vzdump --mode snapshot` 與還原、LXC 容器，以及節點重開機。**其餘的一切都尚未經過實機驗證** —— PowerStore 與 PowerFlex 完全沒有，PowerVault 這邊的 iSCSI 路徑也沒有，因為那台儲存伺服器走的是 FC。[docs/TESTING_zh-TW.md](docs/TESTING_zh-TW.md) 逐項列出了哪些是哪些；在信任這裡任何一項之前，請先讀它。
 >
 > **請不要安裝在正式環境的叢集，也不要指向存有重要資料的儲存伺服器。** 儲存外掛是以 root 權限執行的，它會在儲存伺服器上建立與刪除 volume，並在每一台節點上操作區塊裝置。這裡的缺陷可能毀掉虛擬機資料、讓儲存離線，或讓節點進入只能重開機才能恢復的狀態；而且因為 multipath 與 SCSI 狀態是全節點共用的，受害範圍不一定只限於本外掛自己的儲存。
 >
@@ -18,8 +18,8 @@ Dell EMC 儲存伺服器的 Proxmox VE 儲存外掛。
 
 ## 專案狀態
 
-> **版本 0.8.16~beta1 — 三個 storage type 程式碼皆已完成，其中一個已在實機上完整跑過：PowerVault ME，走 Fibre Channel，機型 ME4024。**
-> PowerStore 與 PowerFlex 從未在任何儲存伺服器上執行過，PowerVault 這邊的 iSCSI 與 SAS 路徑也沒有 —— 對這些而言，所有面向儲存伺服器的細節（REST 路徑與欄位名稱、SCSI vendor／product 字串、WWN 轉 WWID 換算）都還沒驗證。因此這仍然是一個「拿來測試」的版本，請只在非正式環境的叢集與儲存伺服器上使用。1.0.0 的門檻是**每一個**產品系列都通過實機測試，而不是再寫更多程式。
+> **版本 0.8.17~beta1 — 三個 storage type 程式碼皆已完成，其中一個已在實機上完整跑過：PowerVault ME，走 Fibre Channel，機型 ME4024。**
+> PowerStore 與 PowerFlex 從未在任何儲存伺服器上執行過，PowerVault 這邊的 iSCSI 路徑也沒有 —— 對這些而言，所有面向儲存伺服器的細節（REST 路徑與欄位名稱、SCSI vendor／product 字串、WWN 轉 WWID 換算）都還沒驗證。因此這仍然是一個「拿來測試」的版本，請只在非正式環境的叢集與儲存伺服器上使用。1.0.0 的門檻是**每一個**產品系列都通過實機測試，而不是再寫更多程式。
 
 | 階段 | 內容 | 狀態 |
 |---|---|---|
@@ -29,7 +29,7 @@ Dell EMC 儲存伺服器的 Proxmox VE 儲存外掛。
 | 3 | PowerStore REST API 客戶端 | **已完成** |
 | 4 | `dellpowerstore` plugin、災難復原工具、文件 | **程式碼已完成**，實機測試未進行 |
 | 5 | FC 驗證、PVE 9.2 驗證、1.0.0 發行 | FC 已在一台 PowerVault ME4024 上**驗證通過**；1.0.0 仍待另外兩個系列 |
-| 6 | `dellpowervault` 外掛，支援 PowerVault ME4／ME5 | **已在一台 ME4024 上以 FC 通過實機測試**（0.7.65）；iSCSI 與 SAS 仍待驗證 |
+| 6 | `dellpowervault` 外掛，支援 PowerVault ME4／ME5 | **已在一台 ME4024 上以 FC 通過實機測試**（0.7.65）；iSCSI 仍待驗證，SAS 尚未實作 |
 | 7 | `dellpowerflex` plugin，NVMe/TCP 與 SDC | **程式碼已完成**，實機測試未進行 |
 | 8 | Unity XT 的 `dellunity` 外掛 | **程式碼已完成**，實機測試未進行 |
 | 9+ | PowerMax | 未開始 |
@@ -41,7 +41,7 @@ Dell EMC 各產品線的差異太大，無法共用同一個 PVE storage type，
 | 順序 | 系列 | PVE storage type | 資料路徑 | 狀態 |
 |---|---|---|---|---|
 | 1 | **PowerStore** | `dellpowerstore` | iSCSI／FC（dm-multipath） | **開發中** |
-| 2 | **PowerVault ME4／ME5** | `dellpowervault` | iSCSI／FC／SAS（dm-multipath） | **開發中** |
+| 2 | **PowerVault ME4／ME5** | `dellpowervault` | iSCSI／FC（dm-multipath） | **開發中** |
 | 3 | **PowerFlex** | `dellpowerflex` | NVMe/TCP 或 SDC | **開發中** |
 | 4 | **Unity XT** | `dellunity` | iSCSI / FC（dm-multipath） | **開發中** |
 | 5 | PowerMax | `dellpowermax` | FC／iSCSI（dm-multipath）、NVMe/FC 與 NVMe/TCP（NVMe-oF） | 規劃中 |

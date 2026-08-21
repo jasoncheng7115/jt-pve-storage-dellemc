@@ -2655,11 +2655,13 @@ sub volume_snapshot {
     eval { $class->_array_snapshot_create($scfg, $storeid, $array_name, $snap_name) };
     die "Failed to create snapshot '$snap' of volume '$volname': $@" if $@;
 
+    # Detached. Everything above this point is inside PVE's guest fs-freeze;
+    # the config backup must not be. See _backup_vm_config_detached.
     if ($class->_config_backup_enabled($scfg)
         && $volname =~ /^(?:vm|base)-(\d+)-disk-\d+\z/) {
         my $vmid = $1;
-        eval { $class->_backup_vm_config($scfg, $storeid, $vmid, $snap) };
-        warn "VM config backup failed (not fatal): $@" if $@;
+        eval { $class->_backup_vm_config_detached($scfg, $storeid, $vmid, $snap) };
+        warn "VM config backup could not be started (not fatal): $@" if $@;
     }
 
     return 1;
@@ -3592,9 +3594,120 @@ sub _vm_config_path {
     return undef;
 }
 
-sub _backup_vm_config {
+# Snapshots that exist for seconds, and snapshots this plugin made for itself.
+#
+# vzdump's container backup creates a storage snapshot called 'vzdump', reads
+# the guest through it and deletes it again; PVE::LXC::Config reserves that
+# name, so it can never be a user's. A configuration copy beside such a
+# snapshot is worth nothing, because the snapshot it describes is gone before
+# anybody could recover from it - and once the copy is made in the background
+# it is worse than nothing: volume_snapshot_delete looks for a config volume
+# the background process has not created yet, finds none, and the volume that
+# appears a moment later is an orphan that nothing removes until the VM's last
+# disk is freed.
+#
+# A dot is the other half of the fence. PVE forbids one in a snapshot name, so
+# any snapshot carrying one was made by this plugin for its own purposes -
+# the same property lesson 58 used to keep a user from typing the name of the
+# rollback backup.
+sub _is_transient_snapshot {
+    my ($class, $snap) = @_;
+
+    return 1 if !defined $snap || !length $snap;
+    return 1 if $snap eq 'vzdump';
+    return 1 if index($snap, '.') >= 0;
+
+    return 0;
+}
+
+# One child per snapshot, not one per disk.
+#
+# PVE snapshots every volume of a guest from the SAME process, in one loop, so
+# a process-local record is enough to keep the second and third disk from
+# starting a second and third background copy of one configuration. Without it
+# they race: each checks whether the config volume exists, all of them see
+# nothing, and all of them try to create it.
+my %CONFIG_BACKUP_STARTED;
+
+sub _config_backup_claim {
+    my ($class, $storeid, $vmid, $snap) = @_;
+
+    my $now = time();
+
+    # A worker is short-lived, but pvesm and a long-running daemon are not.
+    # Nothing here is load bearing after the snapshot it belongs to, so drop
+    # anything an hour old rather than letting the hash grow for the life of
+    # the process.
+    for my $old (keys %CONFIG_BACKUP_STARTED) {
+        delete $CONFIG_BACKUP_STARTED{$old}
+            if ($now - $CONFIG_BACKUP_STARTED{$old}) > 3600;
+    }
+
+    my $key = join("\0", $storeid // '', $vmid // '', $snap // '');
+    return 0 if $CONFIG_BACKUP_STARTED{$key};
+
+    $CONFIG_BACKUP_STARTED{$key} = $now;
+    return 1;
+}
+
+# The configuration copy, off the guest's critical path.
+#
+# volume_snapshot runs between PVE's guest filesystem freeze and its thaw
+# (PVE::AbstractConfig::snapshot_create issues guest-fsfreeze-freeze before
+# the volume loop and guest-fsfreeze-thaw after it), so every second spent in
+# here is a second the guest does no I/O: no service answers, the console
+# stops. The array snapshot belongs in that window and costs nothing - it is
+# a metadata operation. The configuration copy does not belong there at all:
+# it creates a volume, maps it, rescans the transport, waits for a multipath
+# device, makes a filesystem on it and mounts it. A customer measured 8
+# seconds of frozen guest for it, on an array whose snapshot itself took
+# 0.00s (issue #2).
+#
+# The knob made it worse in the direction anyone would turn it.
+# dell-config-backup-timeout was written as though the cost were a slow
+# snapshot; raising it on a slow fabric lengthened the FREEZE. And
+# qemu-guest-agent thaws by itself after 60 seconds, which is inside the range
+# that option allowed - a snapshot that looks fine and is not consistent.
+#
+# PVE gives a storage plugin no hook after the thaw. Its 'after-unfreeze' hook
+# is a method on the guest configuration class, not on the plugin. So the work
+# is detached here rather than deferred by PVE.
+#
+# Double fork, and each half of it earns its place:
+#
+#   - The intermediate child exits immediately and is reaped HERE, so this
+#     process leaves nothing behind and waits on nothing. Setting
+#     $SIG{CHLD} = 'IGNORE' with local() instead would restore the handler
+#     long before the working process ends, which is a zombie by a longer
+#     road.
+#   - The grandchild is orphaned deliberately: init becomes its parent and
+#     reaps it whenever it finishes.
+#   - setsid takes it out of the worker's process group, so aborting the
+#     snapshot task cannot kill it half way through and leave a volume
+#     created, mapped, and with nothing left running to unmap it.
+#
+# No client is inherited, and that is not luck. In a forked process $$ differs
+# from the pid this module was compiled in, so _api builds a fresh client per
+# call and frees it when the call returns, and REST::DESTROY is guarded on the
+# session's OWN pid - so the grandchild returns the sessions it opened and can
+# never end this process's (lessons 76 and 78). By the time the work is done
+# no client is alive, which is what makes the POSIX::_exit at the end safe.
+#
+# There is deliberately no overall alarm around the child. Every step inside
+# it is already bounded - the REST calls by their own timeouts, the device
+# wait by dell-config-backup-timeout - and an outer alarm would be cancelled
+# by the first inner alarm(0) that ran, which is a timeout that looks present
+# and is not.
+sub _backup_vm_config_detached {
     my ($class, $scfg, $storeid, $vmid, $snap) = @_;
 
+    return 0 if $class->_is_transient_snapshot($snap);
+    return 0 unless $class->_config_backup_claim($storeid, $vmid, $snap);
+
+    # Read the configuration HERE, in the process the guest was frozen for.
+    # It is a local file read and costs nothing measurable, and it is the only
+    # way the copy is the configuration as it stood at the moment of the
+    # snapshot rather than whenever the background process got round to it.
     my $path = $class->_vm_config_path($vmid);
     unless ($path) {
         warn "No configuration file found for VM $vmid; skipping config backup\n";
@@ -3609,6 +3722,64 @@ sub _backup_vm_config {
         local $/;
         <$fh>;
     };
+
+    my $pid = fork();
+    die "cannot fork for the config backup of VM $vmid: $!\n" unless defined $pid;
+
+    if ($pid) {
+        # The intermediate child exits at once, so this waits on it and not on
+        # any array work.
+        waitpid($pid, 0);
+        return 1;
+    }
+
+    # Intermediate child: hand the work to a process init will reap, and go.
+    my $worker = fork();
+    POSIX::_exit(0) if !defined $worker || $worker;
+
+    # The process that does the work. Nothing above it is waiting.
+    POSIX::setsid();
+
+    eval {
+        $class->_backup_vm_config($scfg, $storeid, $vmid, $snap,
+            content => $content, path => $path);
+        1;
+    } or do {
+        my $err = $@ || "unknown error\n";
+        # This can land in the task log after the task has already reported
+        # success, so it says plainly that it is the deferred half.
+        warn "Deferred config backup for snapshot '$snap' of VM $vmid failed:"
+           . " $err  The snapshot itself is unaffected; only"
+           . " pve-dell-config-get's disaster-recovery copy is missing.\n";
+    };
+
+    POSIX::_exit(0);
+}
+
+# %opts carries the configuration already read by the caller. It is optional
+# so this sub still stands on its own, but the detached path always passes it:
+# the copy has to be the configuration as it was when the guest was frozen,
+# not as it is whenever the background process reaches this line.
+sub _backup_vm_config {
+    my ($class, $scfg, $storeid, $vmid, $snap, %opts) = @_;
+
+    my $path = $opts{path} // $class->_vm_config_path($vmid);
+    unless ($path) {
+        warn "No configuration file found for VM $vmid; skipping config backup\n";
+        return 0;
+    }
+
+    my $content = $opts{content};
+    unless (defined $content) {
+        $content = do {
+            open(my $fh, '<', $path) or do {
+                warn "Cannot read $path: $!\n";
+                return 0;
+            };
+            local $/;
+            <$fh>;
+        };
+    }
 
     my $name = $class->naming->encode_config_volume_name($storeid, $vmid, $snap);
 

@@ -171,7 +171,7 @@
     <div class="hero__glow"></div>
     <div class="hero__glow-left"></div>
     <div class="hero__content">
-        <div class="hero__badge">v0.8.16~beta1 <span class="hero__badge-sep"></span> MIT License</div>
+        <div class="hero__badge">v0.8.17~beta1 <span class="hero__badge-sep"></span> MIT License</div>
         <h1 class="hero__title">jt-pve-storage-dellemc</h1>
         <p class="hero__project-desc">
             <span class="lang-en">Dell EMC Storage Plugins for Proxmox VE</span>
@@ -270,7 +270,7 @@
                 <tr>
                     <td><strong>PowerVault ME4 / ME5</strong></td>
                     <td><code>dellpowervault</code></td>
-                    <td>iSCSI / FC / SAS (dm-multipath)</td>
+                    <td>iSCSI / FC (dm-multipath)</td>
                     <td><span class="status-badge status-badge--supported">
                         <span class="lang-en">Verified on an ME4024 over FC</span><span class="lang-zh">已在 ME4024 以 FC 驗證</span>
                     </span></td>
@@ -1138,8 +1138,8 @@ DellPowerFlexPlugin                  <span class="comment"># no SCSI LUN, no mul
         <span class="lang-zh">驗證狀態</span>
     </h2>
     <p class="section-subtitle">
-        <span class="lang-en">3,222 unit tests run without an array or a device. What they cannot tell you is whether the endpoints exist, whether the field names are right, or whether a device ever appears &mdash; only an array can, and exactly one has.</span>
-        <span class="lang-zh">3,222 個單元測試不需要儲存伺服器或實體裝置即可執行。它們無法告訴你的是：端點是否存在、欄位名稱是否正確、裝置到底會不會出現 &mdash; 那隻有儲存伺服器能回答，而目前只有一台回答過。</span>
+        <span class="lang-en">3,244 unit tests run without an array or a device. What they cannot tell you is whether the endpoints exist, whether the field names are right, or whether a device ever appears &mdash; only an array can, and exactly one has.</span>
+        <span class="lang-zh">3,244 個單元測試不需要儲存伺服器或實體裝置即可執行。它們無法告訴你的是：端點是否存在、欄位名稱是否正確、裝置到底會不會出現 &mdash; 那隻有儲存伺服器能回答，而目前只有一台回答過。</span>
     </p>
 
     <h3>
@@ -1164,10 +1164,10 @@ DellPowerFlexPlugin                  <span class="comment"># no SCSI LUN, no mul
                 </tr>
                 <tr>
                     <td><strong>PowerVault ME4 / ME5</strong></td>
-                    <td>iSCSI, SAS</td>
+                    <td>iSCSI</td>
                     <td><span class="status-badge status-badge--planned">
                         <span class="lang-en">not verified</span><span class="lang-zh">未驗證</span></span></td>
-                    <td><span class="lang-en">the array above ran FC; these paths share the CLI client but not the data path</span><span class="lang-zh">上面那台走的是 FC；這兩條路徑共用 CLI 用戶端，但資料路徑不同</span></td>
+                    <td><span class="lang-en">the array above ran FC; this path shares the CLI client but not the data path</span><span class="lang-zh">上面那台走的是 FC；這條路徑共用 CLI 用戶端，但資料路徑不同</span></td>
                 </tr>
                 <tr>
                     <td><strong>PowerStore</strong></td>
@@ -1299,6 +1299,15 @@ DellPowerFlexPlugin                  <span class="comment"># no SCSI LUN, no mul
         <span class="lang-en">Changelog</span>
         <span class="lang-zh">變更紀錄</span>
     </h2>
+
+    <div class="changelog-entry">
+        <div class="changelog-version">v0.8.17~beta1</div>
+        <div class="changelog-date">2026-08-21</div>
+        <div class="changelog-summary">
+            <span class="lang-en">Taking a snapshot froze a running guest for about eight seconds. volume_snapshot runs between PVE's guest fs-freeze and its thaw, so everything it does is time the guest does no I/O &mdash; and the VM configuration backup, on by default, creates a volume, maps it, rescans the transport, waits for a device and makes a filesystem. The array snapshot itself took 0.00s. That work is now detached. Reported with timestamps by Alexander Gott (@alexandergott-afk), issue #2 &mdash; thank you. Also: the documentation offered SAS as a PowerVault data path, which is not implemented and cannot be configured.</span>
+            <span class="lang-zh">建立快照會讓執行中的客體凍結大約八秒。volume_snapshot 跑在 PVE 的客體檔案系統凍結與解凍之間，所以它做的每一件事都是客體不做任何 I/O 的時間 &mdash; 而預設開啟的 VM 設定備份會建立磁碟區、對應、重新掃描傳輸層、等待裝置、建立檔案系統。儲存伺服器上的快照本身只花了 0.00 秒。這些工作現在已脫離出去。由 Alexander Gott（@alexandergott-afk）附時間戳記回報，issue #2 &mdash; 在此致謝。另外：文件把 SAS 列為 PowerVault 的資料路徑，但它並未實作，也無法被設定。</span>
+        </div>
+    </div>
 
     <div class="changelog-entry">
         <div class="changelog-version">v0.8.16~beta1</div>

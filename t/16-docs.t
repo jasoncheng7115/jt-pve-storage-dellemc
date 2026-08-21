@@ -25,6 +25,7 @@ use PVE::Storage::Custom::DellPowerStorePlugin;
 use PVE::Storage::Custom::DellPowerVaultPlugin;
 use PVE::Storage::Custom::DellPowerFlexPlugin;
 use PVE::Storage::Custom::DellUnityPlugin;
+use PVE::Storage::Custom::DellEMC::Common::Schema;
 
 my @PLUGINS = qw(
     PVE::Storage::Custom::DellPowerStorePlugin
@@ -364,6 +365,86 @@ SKIP: {
             or diag("  @unreachable");
 
         cmp_ok(scalar(@targets), '>', 10, 'the sidebar was actually parsed');
+    }
+}
+
+# ---------------------------------------------------------------------------
+# A document may not offer a data path the code has no option for
+#
+# For a long time every document listed SAS beside iSCSI and FC as a
+# PowerVault data path, in the register of things merely awaiting hardware.
+# It was never that: dell-protocol's enum has no 'sas' in it, so such a
+# storage cannot be configured at all, and supported_protocols on the SAN
+# families answers iscsi and fc. A reader with a SAS-attached ME was told a
+# path existed that no code and no option ever backed.
+#
+# That is lesson 62's shape in prose rather than in a method: a capability
+# advertised with nothing behind it. "Not verified" and "not implemented" are
+# different claims and a reader plans differently around each, so the enum is
+# what the documents are checked against.
+#
+# The check is deliberately narrow. It looks only at the rows where a document
+# names a family's data path, because that is where a reader reads an offer.
+# Prose that discusses SAS as absent - which docs/TESTING.md now does at
+# length - has to remain possible to write.
+# ---------------------------------------------------------------------------
+
+{
+    # common_properties, not properties: the latter records which family
+    # class declared the shared options, and a test must not claim that.
+    my $schema =
+        PVE::Storage::Custom::DellEMC::Common::Schema->common_properties();
+    my $enum = $schema->{'dell-protocol'}{enum} // [];
+    my %configurable = map { lc($_) => 1 } @$enum;
+
+    ok(scalar(keys %configurable) > 1, 'dell-protocol declares an enum')
+        or diag('nothing was read, so this test is not testing anything');
+
+    # Every protocol word a reader might meet, and whether an operator could
+    # actually put it in a storage configuration.
+    my @claimable = qw(iscsi fc sas nvme sdc fcoe infiniband);
+    my @unbacked = grep { !$configurable{$_} } @claimable;
+
+    my @docs = grep { -f $_ } qw(
+        README.md README_zh-TW.md
+        docs/ARCHITECTURE.md docs/ARCHITECTURE_zh-TW.md
+        docs/index.html
+    );
+
+    ok(scalar(@docs) >= 4, 'the documents that carry a data-path table exist');
+
+    for my $file (@docs) {
+        my $src = do {
+            open my $fh, '<:encoding(UTF-8)', $file or die "$file: $!";
+            local $/;
+            <$fh>;
+        };
+
+        my @bad;
+        my $lineno = 0;
+        for my $line (split /\n/, $src, -1) {
+            $lineno++;
+
+            # A DATA PATH cell, which is where a reader reads an offer:
+            # 'iSCSI / FC (dm-multipath)', 'NVMe/TCP or SDC'. Narrow on
+            # purpose. A roadmap row that says "SAS not implemented" names
+            # the word too, and saying so is the correction, not the defect.
+            next unless $line =~ m{dm-multipath|NVMe/TCP}i;
+
+            # And an explicit denial stays writable anywhere.
+            next if $line =~ m{not implemented|not supported|尚未實作|不支援}i;
+
+            for my $word (@unbacked) {
+                # Word boundaries on both sides, so 'FC' does not match
+                # inside 'FCoE' and 'sas' does not match inside 'sas_address'.
+                next unless $line =~ /(?<![A-Za-z])\Q$word\E(?![A-Za-z])/i;
+                push @bad, "line $lineno names '$word': $line";
+            }
+        }
+
+        is(scalar(@bad), 0,
+            "$file offers no data path dell-protocol cannot be set to")
+            or diag("  " . join("\n  ", @bad));
     }
 }
 

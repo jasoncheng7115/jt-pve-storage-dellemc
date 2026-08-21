@@ -1,3 +1,30 @@
+jt-pve-storage-dellemc (0.8.17~beta1-1) unstable; urgency=high
+
+  * BETA RELEASE. Not for production use.
+  * Fixed: taking a snapshot of a running VM froze the guest for about 8
+    seconds. volume_snapshot runs between PVE's guest-fsfreeze-freeze and its
+    thaw, so everything it does is time the guest does no I/O - and the VM
+    configuration backup, which is on by default, creates a volume on the
+    array, maps it, rescans the transport, waits for a multipath device,
+    makes a filesystem and mounts it. The array snapshot itself took 0.00s.
+    The configuration copy now runs in a detached background process, so the
+    freeze covers only the array snapshot. Reported with timestamps proving
+    where the time went by Alexander Gott (@alexandergott-afk) in issue #2.
+  * dell-config-backup-timeout no longer lengthens the guest freeze; its
+    description said it kept a slow fabric from stalling a snapshot, which
+    invited raising it, and its maximum of 60 reached qemu-guest-agent's own
+    fsfreeze timeout.
+  * No config backup is made beside a vzdump snapshot, which is deleted
+    within the same backup run, and only one background process is started
+    per snapshot rather than one per disk.
+  * Fixed: the documentation offered SAS as a PowerVault data path and filed
+    it under things awaiting hardware. It is not implemented and cannot be
+    configured - dell-protocol's enum is iscsi, fc, sdc, nvme. Every document
+    now says so, and t/16-docs.t fails any data-path cell naming a protocol
+    the enum does not carry.
+
+ -- Jason Cheng <jason@jason.tools>  Fri, 21 Aug 2026 19:30:00 +0800
+
 jt-pve-storage-dellemc (0.8.16~beta1-1) unstable; urgency=high
 
   * BETA RELEASE. Not for production use.

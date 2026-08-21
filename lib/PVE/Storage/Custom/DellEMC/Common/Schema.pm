@@ -139,10 +139,13 @@ sub common_properties {
         },
         'dell-config-backup-timeout' => {
             description => "Seconds to wait for the auxiliary 1 MB config"
-                . " backup volume's device during a snapshot. That volume is"
-                . " only read by pve-dell-config-get for disaster recovery, so"
-                . " a shorter separate timeout keeps a slow fabric from"
-                . " stalling every snapshot.",
+                . " backup volume's device. That volume is only read by"
+                . " pve-dell-config-get for disaster recovery, so it has a"
+                . " shorter timeout of its own. The wait happens in a"
+                . " detached background process, after the snapshot has"
+                . " returned and the guest's filesystems have been thawed, so"
+                . " raising this no longer lengthens the freeze - it only"
+                . " gives a slow fabric more time to present the device.",
             type => 'integer',
             minimum => 5,
             maximum => 60,

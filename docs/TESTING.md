@@ -37,8 +37,8 @@ in seconds, the array correctly refusing to delete a template with a live
 clone (`-3442`), and unmap, delete and local device cleanup.
 
 **This is the first end-to-end run in the project's history.** It does not
-make the other two families verified, and it does not make iSCSI or SAS
-verified — this array ran Fibre Channel.
+make the other two families verified, and it does not make iSCSI verified —
+this array ran Fibre Channel.
 
 Still not captured from that array, and therefore still inferred:
 
@@ -521,8 +521,24 @@ the path item 30 exercised: 0.7.89 overrides `qemu_blockdev_options`, which
 is what PVE calls to attach a disk when starting a VM. Re-running the boot
 after an upgrade is worth the two minutes it takes.
 
-Still not run on this array: iSCSI, SAS, live migration between nodes, a path
+Still not run on this array: iSCSI, live migration between nodes, a path
 failure, and the two transfer paths added in 0.7.88.
+
+**SAS is not implemented, which is a different thing from unverified.** These
+documents listed it as a PowerVault data path for a long time, next to iSCSI
+and FC, in the register of things awaiting hardware. It was never any of
+those: `dell-protocol`'s enum is `iscsi`, `fc`, `sdc`, `nvme`, so a SAS
+storage cannot be configured at all, and `supported_protocols` on the SAN
+families answers `iscsi` and `fc`. A reader with a SAS-attached ME was being
+told a path existed that no code and no option ever backed.
+
+What it would take, if an array with SAS host ports ever appears: the
+initiator identifiers are SAS addresses read from `/sys/class/sas_phy/*/
+sas_address` rather than from `fc_host` or an IQN, and the discovery step is
+neither `iscsiadm` nor an FC rport walk. The CLI client above is unaffected —
+it is the host side that differs. Nothing should be written until there is an
+array to check it against; a data path written from documentation alone is
+what the rest of this document exists to warn about.
 
 ## Soak criteria for 1.0.0
 
