@@ -171,7 +171,7 @@
     <div class="hero__glow"></div>
     <div class="hero__glow-left"></div>
     <div class="hero__content">
-        <div class="hero__badge">v0.8.19~beta1 <span class="hero__badge-sep"></span> MIT License</div>
+        <div class="hero__badge">v0.8.20~beta1 <span class="hero__badge-sep"></span> MIT License</div>
         <h1 class="hero__title">jt-pve-storage-dellemc</h1>
         <p class="hero__project-desc">
             <span class="lang-en">Dell EMC Storage Plugins for Proxmox VE</span>
@@ -1138,8 +1138,8 @@ DellPowerFlexPlugin                  <span class="comment"># no SCSI LUN, no mul
         <span class="lang-zh">驗證狀態</span>
     </h2>
     <p class="section-subtitle">
-        <span class="lang-en">3,327 unit tests run without an array or a device. What they cannot tell you is whether the endpoints exist, whether the field names are right, or whether a device ever appears &mdash; only an array can, and exactly one has.</span>
-        <span class="lang-zh">3,327 個單元測試不需要儲存伺服器或實體裝置即可執行。它們無法告訴你的是：端點是否存在、欄位名稱是否正確、裝置到底會不會出現 &mdash; 那隻有儲存伺服器能回答，而目前只有一台回答過。</span>
+        <span class="lang-en">3,336 unit tests run without an array or a device. What they cannot tell you is whether the endpoints exist, whether the field names are right, or whether a device ever appears &mdash; only an array can, and exactly one has.</span>
+        <span class="lang-zh">3,336 個單元測試不需要儲存伺服器或實體裝置即可執行。它們無法告訴你的是：端點是否存在、欄位名稱是否正確、裝置到底會不會出現 &mdash; 那隻有儲存伺服器能回答，而目前只有一台回答過。</span>
     </p>
 
     <h3>
@@ -1299,6 +1299,15 @@ DellPowerFlexPlugin                  <span class="comment"># no SCSI LUN, no mul
         <span class="lang-en">Changelog</span>
         <span class="lang-zh">變更紀錄</span>
     </h2>
+
+    <div class="changelog-entry">
+        <div class="changelog-version">v0.8.20~beta1</div>
+        <div class="changelog-date">2026-08-24</div>
+        <div class="changelog-summary">
+            <span class="lang-en">Creating a VM could fail with ten identical retries and then blame other nodes that were not there. A volume deleted from PowerStore Manager stays in the recycle bin: no listing shows it and the array still refuses its name, so the retry asked the view that was wrong and got the same answer every round. It remembers what was refused now, which converges whatever holds the name. Reported by Alexander Gott (@alexandergott-afk), issue #9 &mdash; thank you.</span>
+            <span class="lang-zh">建立虛擬機時可能出現十次一模一樣的重試，然後歸咎於根本不存在的其他節點。在 PowerStore Manager 中刪掉的磁碟區會留在回收筒裡：任何列表都看不到它，而儲存伺服器仍然拒絕它的名字，於是重試每一輪都去問那個出錯的視角、得到同樣的答案。現在它會記住被拒絕過的 ID，不論是什麼東西佔住名字都會收斂。由 Alexander Gott（@alexandergott-afk）在 issue #9 回報 &mdash; 在此致謝。</span>
+        </div>
+    </div>
 
     <div class="changelog-entry">
         <div class="changelog-version">v0.8.19~beta1</div>

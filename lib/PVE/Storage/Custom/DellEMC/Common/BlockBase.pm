@@ -673,13 +673,29 @@ sub parse_volname {
 }
 
 # Lowest disk id not already used by this VM on this storage.
+# %opts takes 'exclude', a hashref of disk ids to treat as used regardless of
+# what the listing says.
+#
+# The listing is the array's view, and the array's view can be wrong about a
+# name being free while the array itself still refuses it: a volume deleted in
+# PowerStore Manager sits in the recycle bin, invisible to the listing and
+# still holding its name (issue #9). Without a memory of what has already been
+# refused, alloc_image asks this the same question every round, gets the same
+# answer, and retries the identical name until it gives up.
+#
+# Deliberately NOT a query for the invisible object. Dell's own SDK has no
+# recycle-bin endpoint, so there is nothing reliable to ask; and the next thing
+# to hold a name this way will not be a recycle bin. Remembering the refusal
+# works whatever the cause.
 sub _find_free_diskid {
-    my ($class, $scfg, $storeid, $vmid) = @_;
+    my ($class, $scfg, $storeid, $vmid, %opts) = @_;
+
+    my $exclude = $opts{exclude} // {};
 
     my $prefix = $class->naming->volume_prefix($storeid) . "${vmid}-";
     my $volumes = eval { $class->_array_list_volumes($scfg, $storeid, $prefix) } // [];
 
-    my %used;
+    my %used = %$exclude;
     for my $vol (@$volumes) {
         next unless $vol->{name};
         my $decoded = $class->naming->decode_volume_name($vol->{name});
@@ -1516,6 +1532,7 @@ sub alloc_image {
     # together with the create. Outside it, the worker that lost the race
     # would die on a name it was still free to change.
     my $attempt = 0;
+    my %tried;      # disk ids the array refused, however invisible the holder
     while (1) {
         $attempt++;
 
@@ -1539,15 +1556,44 @@ sub alloc_image {
           . " operation.\n"
             unless !$dictated && $pve_volname =~ /^vm-\d+-disk-\d+\z/;
 
-        die "Could not find a free disk id for VM $vmid on storage '$storeid'"
-          . " after $attempt attempts; allocations from other nodes kept"
-          . " taking it first. Retry the operation.\n"
-            if $attempt >= ALLOC_MAX_ATTEMPTS;
+        # Remember the id that was refused.
+        #
+        # Without this the next round asks the array which ids are free, gets
+        # the same answer, and rebuilds the identical name: the retry cannot
+        # converge, and every line of the log says "retrying as" the name it
+        # just failed on. That is what a volume sitting in PowerStore's recycle
+        # bin does - invisible to the listing, still holding its name (issue
+        # #9) - and it is what anything else holding a name invisibly would do.
+        my $refused_id = $class->naming->decode_volume_name($array_name);
+        $tried{ $refused_id->{diskid} } = 1
+            if ref($refused_id) eq 'HASH' && defined $refused_id->{diskid};
 
-        my $diskid = $class->_find_free_diskid($scfg, $storeid, $vmid);
+        # Two different failures, and only one of them is worth retrying.
+        if ($attempt >= ALLOC_MAX_ATTEMPTS) {
+            die "Could not find a free disk id for VM $vmid on storage"
+              . " '$storeid' after $attempt attempts. The array refused every"
+              . " name tried (" . join(', ', map { "disk$_" } sort { $a <=> $b } keys %tried)
+              . ") while its own volume listing showed them as free. On"
+              . " PowerStore a volume deleted from PowerStore Manager stays in"
+              . " the recycle bin, invisible to the listing and still holding"
+              . " its name; permanently remove it there, or check for another"
+              . " object of a kind this listing does not show.\n"
+                if %tried;
+
+            die "Could not find a free disk id for VM $vmid on storage"
+              . " '$storeid' after $attempt attempts; allocations from other"
+              . " nodes kept taking it first. Retry the operation.\n";
+        }
+
+        my $diskid = $class->_find_free_diskid($scfg, $storeid, $vmid,
+            exclude => \%tried);
         $array_name  = $class->naming->encode_volume_name($storeid, $vmid, $diskid);
         $pve_volname = "vm-${vmid}-disk-${diskid}";
-        warn "alloc_image: disk id collision, retrying as '$pve_volname'\n";
+
+        # Name what actually happened. "disk id collision" reads as a race with
+        # another node, and the operator in issue #9 had no other node.
+        warn "alloc_image: the array refused '$pve_volname'"
+           . " although its listing did not show it; trying disk$diskid\n";
     }
 
     # Map to every node, so live migration works without a remap.

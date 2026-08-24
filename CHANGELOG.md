@@ -7,6 +7,46 @@ Versioning: the patch number increments per release and runs to .99 before
 the minor number moves — 0.7.0, 0.7.1, … 0.7.99, then 0.8.0. Every 0.x
 release is a prerelease; 1.0.0 is the on-hardware test pass.
 
+## [0.8.20~beta1] - 2026-08-24
+
+### Fixed
+- **Creating a VM could fail with ten identical retries and then blame other
+  nodes that were not there.** A volume deleted from PowerStore Manager sits in
+  the recycle bin: no listing shows it, and the array still refuses its name.
+
+  `alloc_image` picks a disk id, and when the create is refused it picks
+  again — by asking the array which ids are free. That is the view the recycle
+  bin makes wrong. So the listing said `disk0` was free, the create said it was
+  taken, and the next round asked the same question and got the same answer,
+  ten times, every log line saying *retrying as* the name it had just failed
+  on. The final message then blamed *allocations from other nodes*, on a
+  single-node install, and advised retrying something that could never succeed.
+
+  The retry now remembers which ids were refused and excludes them, so it
+  converges whatever is holding the name. That is deliberately not a query for
+  the recycled volume: Dell's SDK has no recycle-bin endpoint, so there is
+  nothing reliable to ask, and the next thing to hold a name invisibly will not
+  be a recycle bin either.
+
+  The two failures are also told apart now. Losing a race to another node is
+  worth retrying and says so; a name the array refuses while its own listing
+  shows it free is not, and names the recycle bin as the thing to check.
+
+  Reported by **Alexander Gott ([@alexandergott-afk](https://github.com/alexandergott-afk))**
+  in [issue #9](https://github.com/jasoncheng7115/jt-pve-storage-dellemc/issues/9).
+  Thank you.
+
+### Changed
+- PowerFlex's own `_find_free_diskid` takes the same `exclude` argument. It
+  inherits nothing from `BlockBase`, so the signatures are kept identical by
+  hand rather than by inheritance.
+- `docs/RELEASE_TESTING.md` gained a hardware section for the cases these
+  reports produced: a default `find_multipaths strict` node, stale sd paths
+  after a snapshot delete, the guest freeze during a snapshot, the recycle bin,
+  and a UEFI disk. Plus the per-VM volume group checks, including putting one
+  of the plugin's volumes into a group of your own and confirming it can still
+  be deleted. Both languages.
+
 ## [0.8.19~beta1] - 2026-08-24
 
 ### Fixed

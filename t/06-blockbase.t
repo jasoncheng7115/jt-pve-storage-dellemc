@@ -45,9 +45,11 @@ my $TMP = tempdir(CLEANUP => 1);
     our @HOSTS;
     our $FAIL_MAP;
     our $CAPACITY = [1000, 400, 600];
+    our %RECYCLED;   # names the array refuses and no query reveals
 
     sub reset_state {
         %VOLUMES = ();
+        %RECYCLED = ();
         %SNAPSHOTS = ();
         %MAPPINGS = ();
         @CALLS = ();
@@ -96,6 +98,14 @@ my $TMP = tempdir(CLEANUP => 1);
         my ($class, $scfg, $storeid, $name, $size) = @_;
         $class->log_call('create', $name);
         die "already exists\n" if $VOLUMES{$name};
+
+        # A name held by something the listing does not show. On PowerStore
+        # that is a volume deleted from PowerStore Manager and sitting in the
+        # recycle bin: invisible to every query, and the array still refuses
+        # the name (issue #9). The fixture has to refuse what the real array
+        # refuses or it proves nothing (lesson 79).
+        die "already exists\n" if $RECYCLED{$name};
+
         $VOLUMES{$name} = { size => $size, used => 0, wwid => undef };
         return $name;
     }
@@ -1897,6 +1907,73 @@ SKIP: {
     };
     ok($rejected, 'PVE itself refuses a snapshot name containing a dot, which'
       . ' is why one identifies a snapshot this plugin made');
+}
+
+# ---------------------------------------------------------------------------
+# A name the listing says is free and the array refuses anyway
+#
+# Deleting a volume from PowerStore Manager leaves it in the recycle bin: no
+# query shows it, and the array still refuses its name. alloc_image asked the
+# array which ids were free on every round, got the same answer every time,
+# and rebuilt the identical name until it gave up - every line of the log
+# saying "retrying as" the name it had just failed on, and the final error
+# blaming other nodes that were not involved (issue #9).
+#
+# The fix is a memory of what was refused, not a query for the invisible
+# object: Dell's SDK has no recycle-bin endpoint, and the next thing to hold a
+# name this way will not be a recycle bin either.
+# ---------------------------------------------------------------------------
+
+{
+    Test::Plugin->reset_state();
+    $Test::Plugin::RECYCLED{'pve-t1-100-disk0'} = 1;
+
+    my @warnings;
+    local $SIG{__WARN__} = sub { push @warnings, $_[0] };
+
+    my $scfg = { 'dell-portal' => '10.0.0.1', 'dell-prefix' => 'pve' };
+    my $name = eval {
+        Test::Plugin->alloc_image('t1', $scfg, 100, 'raw', undef, 1024 * 1024)
+    };
+
+    is($@, '', 'the allocation succeeds even though disk0 is invisibly taken')
+        or diag("it failed with: $@");
+    is($name, 'vm-100-disk-1',
+        'it moves to the next id instead of retrying the same one forever');
+
+    ok(!$Test::Plugin::VOLUMES{'pve-t1-100-disk0'},
+        'and nothing was created under the refused name');
+    ok($Test::Plugin::VOLUMES{'pve-t1-100-disk1'},
+        'while the volume it did create is there');
+
+    # The old message said "disk id collision", which reads as a race with
+    # another node. The operator who reported this had one node.
+    unlike(join('', @warnings), qr/disk id collision/,
+        'the warning no longer blames a collision with another node');
+    like(join('', @warnings), qr/listing did not show it/,
+        '... and says what actually happened instead');
+}
+
+# Every id refused, so the allocation genuinely cannot proceed. The message
+# has to name the real situation rather than telling the operator to retry
+# something that will never succeed.
+{
+    Test::Plugin->reset_state();
+    $Test::Plugin::RECYCLED{"pve-t1-100-disk$_"} = 1 for 0 .. 20;
+
+    local $SIG{__WARN__} = sub { };
+
+    my $scfg = { 'dell-portal' => '10.0.0.1', 'dell-prefix' => 'pve' };
+    eval { Test::Plugin->alloc_image('t1', $scfg, 100, 'raw', undef, 1024 * 1024) };
+    my $err = $@;
+
+    ok($err, 'an allocation with every id refused does fail');
+    like($err, qr/recycle bin/,
+        'and names the cause an operator can act on')
+        or diag("said instead: $err");
+    unlike($err, qr/from other nodes kept taking it first/,
+        '... rather than blaming other nodes, which is a different failure'
+      . ' and the only one worth retrying');
 }
 
 done_testing();

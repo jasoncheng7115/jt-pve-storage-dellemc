@@ -354,13 +354,19 @@ sub _array_name {
     return $NAMING->pve_volname_to_array($storeid, $volname);
 }
 
+# %opts takes 'exclude', as BlockBase's does and for the same reason: a name
+# the listing shows as free can still be refused by the array, and a caller
+# that has been refused needs to be able to say so. PowerFlex inherits nothing
+# from BlockBase, so the signature is kept identical here by hand (lesson 2).
 sub _find_free_diskid {
-    my ($class, $scfg, $storeid, $vmid) = @_;
+    my ($class, $scfg, $storeid, $vmid, %opts) = @_;
+
+    my $exclude = $opts{exclude} // {};
 
     my $prefix = $NAMING->volume_prefix($storeid) . "${vmid}-";
     my $volumes = eval { $class->_list_own_volumes($scfg, $storeid, $prefix) } // [];
 
-    my %used;
+    my %used = %$exclude;
     for my $volume (@$volumes) {
         my $decoded = $NAMING->decode_volume_name($volume->{name}) or next;
         next unless $decoded->{type} eq 'disk' && defined $decoded->{diskid};

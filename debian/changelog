@@ -1,3 +1,27 @@
+jt-pve-storage-dellemc (0.8.20~beta1-1) unstable; urgency=high
+
+  * BETA RELEASE. Not for production use.
+  * Fixed: creating a VM could fail with ten identical "disk id collision"
+    lines and then blame allocations from other nodes, on a single-node
+    install. A volume deleted from PowerStore Manager stays in the recycle
+    bin: no listing shows it and the array still refuses its name. alloc_image
+    asked the array which ids were free on every round, got the same answer,
+    and rebuilt the identical name until it gave up. The retry now remembers
+    which ids were refused and skips them, so it converges whatever is holding
+    the name. Reported by Alexander Gott (@alexandergott-afk) in issue #9.
+  * Fixed: the message for that failure named a cause it had not established
+    and advised retrying something that could never succeed. Losing a race to
+    another node and a name the array refuses while its listing shows it free
+    are now told apart, and the second names the recycle bin as a thing to
+    check rather than asserting it.
+  * The same 'exclude' argument was added to PowerFlex's own _find_free_diskid,
+    which inherits nothing from BlockBase, so the two signatures stay
+    identical.
+  * docs/RELEASE_TESTING.md gained the hardware cases these reports produced,
+    including the per-VM volume group checks, in both languages.
+
+ -- Jason Cheng <jason@jason.tools>  Mon, 24 Aug 2026 23:30:00 +0800
+
 jt-pve-storage-dellemc (0.8.19~beta1-1) unstable; urgency=high
 
   * BETA RELEASE. Not for production use.

@@ -158,10 +158,33 @@ shared code.
 | 8 | Pull one path | I/O continues; the path shows as failed |
 | 9 | Reboot a node | logs in and devices reappear automatically |
 
+### 4.1a Cases a customer's array found, and the host side did not
+
+These are here because each was invisible to every test that did not involve
+real hardware, and each is cheap to repeat.
+
+| # | Test | Pass criteria | From |
+|---|---|---|---|
+| 10 | On a node with the DEFAULT `find_multipaths strict`, create a disk | a map appears without anyone touching `/etc/multipath/wwids` by hand. Confirm the WWID was added: `grep <wwid> /etc/multipath/wwids` | issue #6 |
+| 11 | Snapshot a VM, then delete the snapshot, then create several more disks | no `LUN assignments on this target have changed` in `dmesg` afterwards. That message means an sd path outlived its LUN and a reused id ran into it | issue #7 |
+| 12 | Snapshot a RUNNING VM with the guest agent enabled, timing it | the guest is unresponsive for well under a second, not for the length of a config backup. `qm snapshot` returning is not the measure; ping the guest through it | issue #2 |
+| 13 | Delete a volume in PowerStore Manager, leaving it in the recycle bin, then create a VM with that VMID | the allocation succeeds on the next disk id. It must not retry the same name, and any failure must name the recycle bin rather than blaming other nodes | issue #9 |
+| 14 | Migrate a UEFI VM onto the storage | the EFI disk is created. It is 540672 bytes, which is below PowerStore's 1 MiB minimum and already 8 KiB aligned, so only the floor saves it | issue #1 |
+
 ### 4.2 Per family, additionally
 
 **PowerStore** — after 300 attach/detach cycles, LUN ids are still low and
 dense (this is the Dell defect the plugin works around).
+
+**PowerStore, with `pstore-volume-group-per-vm 1`** — a VM's disks land in one
+group named `pve-<storeid>-<vmid>-vg`; the config backup volume and any
+temporary snapshot clone do NOT; deleting the VM's last disk removes the group;
+and a group with a protection policy attached in PowerStore Manager survives
+the same deletion, with the reason logged. Reassign a disk to another VM
+(`qm move_disk --target-vmid`) and confirm it moves group. Put one of the
+plugin's volumes into a group of your own and confirm it can still be deleted:
+the array refuses to delete a member, so a volume it will not remove is a
+volume nobody can delete.
 
 **PowerVault ME** — a storage id long enough to overflow 32 bytes is refused
 at creation with a message naming the limit, not truncated.
