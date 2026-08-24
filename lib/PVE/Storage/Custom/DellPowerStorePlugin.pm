@@ -481,28 +481,68 @@ sub _vg_description {
     return "Proxmox VE VM $vmid on storage $storeid " . VG_OWNER_MARK;
 }
 
-# Take a volume out of its per-VM group, and remove the group if that leaves it
-# empty. Never dies, and deliberately not gated on the option: a storage that
-# had it enabled still has the groups (rule 4 above).
+# Take a volume out of its volume group(s). Returns the ids it was removed
+# from, for the caller to consider reaping. Never dies, and deliberately not
+# gated on the option: a storage that had it enabled still has the groups
+# (rule 4 above).
+#
+# Two modes, and the difference is whether the volume survives:
+#
+#   leaving => 1  the volume is being DELETED. PowerStore refuses to delete a
+#                 volume that is still a member - confirmed on a customer's
+#                 array in issue #3 - so removal is mandatory and must work
+#                 even for a group this plugin did not create. Taking OUR OWN
+#                 volume out of somebody's group is not damage: the volume is
+#                 about to stop existing. Refusing to, on the other hand,
+#                 would leave a disk PVE has asked to delete undeletable
+#                 forever.
+#
+#   default       the volume survives, and is only being moved between VMs.
+#                 Here a group this plugin did not create is left alone: an
+#                 operator put the volume there deliberately, and a rename is
+#                 not a reason to overrule them.
 sub _vg_release {
     my ($class, $scfg, $storeid, $name, $volume_id, %opts) = @_;
 
-    my $vmid = $class->_vg_vmid_of($name);
-    return undef unless defined $vmid;
-
-    my $vg_name = $class->_vg_name_for($storeid, $vmid);
-    return undef unless defined $vg_name;
+    my $leaving = delete $opts{leaving};
 
     my $api = $class->_api($scfg, storeid => $storeid, %opts);
 
-    my $group = eval { $api->volume_group_get_by_name($vg_name, %opts) };
-    return undef unless ref($group) eq 'HASH' && defined $group->{id};
-    return undef unless $class->_vg_is_ours($group);
+    # The groups the volume is ACTUALLY in, not the one it would have been
+    # given. An operator may have moved it, and on the delete path that is
+    # exactly the case that must still work.
+    my $groups = eval { $api->volume_groups_of($volume_id, %opts) };
+    if ($@) {
+        warn "Could not read the volume group membership of '$name': $@";
+        return [];
+    }
+    return [] unless ref($groups) eq 'ARRAY' && @$groups;
 
-    eval { $api->volume_group_remove_members($group->{id}, [$volume_id], %opts) };
-    warn "Could not remove '$name' from volume group '$vg_name': $@" if $@;
+    my @touched;
+    for my $group (@$groups) {
+        my $gid = $group->{id};
 
-    return $group->{id};
+        unless ($leaving) {
+            # Only ours are moved when the volume is staying. _vg_is_ours
+            # needs the description, which the nested listing does not carry,
+            # so the group is read for it.
+            my $full = eval { $api->volume_group_get($gid, %opts) };
+            next unless $class->_vg_is_ours($full);
+        }
+
+        eval { $api->volume_group_remove_members($gid, [$volume_id], %opts) };
+        if ($@) {
+            # On the delete path this is not cosmetic: the delete below will
+            # be refused by the array, and the operator needs to know why.
+            warn "Could not remove '$name' from volume group '"
+               . ($group->{name} // $gid) . "': $@";
+            next;
+        }
+
+        push @touched, $gid;
+    }
+
+    return \@touched;
 }
 
 # Delete the group if the volume just removed was the last thing in it.
@@ -754,17 +794,22 @@ sub _array_delete_volume {
     # switched it off still has the groups. A failure here is reported and
     # then ignored: a cosmetic grouping must not be able to strand a volume
     # that PVE has asked to delete.
-    my $group_id = eval {
-        $class->_vg_release($scfg, $storeid, $name, $id, %opts)
-    };
+    # PowerStore refuses to delete a volume that is still in a volume group,
+    # so this is a required step rather than tidiness (issue #3).
+    my $groups = eval {
+        $class->_vg_release($scfg, $storeid, $name, $id, %opts, leaving => 1)
+    } // [];
     warn "Volume group handling for '$name' failed: $@" if $@;
 
     my $res = $class->_api($scfg, %opts)->volume_delete($id, %opts);
 
-    # Only once the volume is really gone, so the membership we read is the
-    # membership after the delete rather than before it.
-    eval { $class->_vg_reap_if_empty($scfg, $storeid, $group_id, %opts) };
-    warn "Empty volume group cleanup after '$name' failed: $@" if $@;
+    # Only once the volume is really gone, so the membership read here is the
+    # membership after the delete rather than before it. _vg_reap_if_empty
+    # checks ownership itself, so a group somebody else made is safe.
+    for my $gid (@$groups) {
+        eval { $class->_vg_reap_if_empty($scfg, $storeid, $gid, %opts) };
+        warn "Empty volume group cleanup after '$name' failed: $@" if $@;
+    }
 
     return $res;
 }
@@ -816,9 +861,11 @@ sub _vg_follow_rename {
     # Leaving the old group is unconditional, for the reason above. It is also
     # what keeps a storage that has switched the option off from accumulating
     # wrong memberships.
-    my $old_group = $class->_vg_release($scfg, $storeid, $from, $volume_id, %opts);
-    eval { $class->_vg_reap_if_empty($scfg, $storeid, $old_group, %opts) }
-        if defined $old_group;
+    my $old_groups = $class->_vg_release($scfg, $storeid, $from, $volume_id, %opts)
+        // [];
+    for my $gid (@$old_groups) {
+        eval { $class->_vg_reap_if_empty($scfg, $storeid, $gid, %opts) };
+    }
 
     return unless $class->_vg_per_vm_enabled($scfg);
     return unless defined $new_vmid;

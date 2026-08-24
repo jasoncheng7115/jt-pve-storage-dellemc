@@ -1,3 +1,37 @@
+jt-pve-storage-dellemc (0.8.19~beta1-1) unstable; urgency=high
+
+  * BETA RELEASE. Not for production use.
+  * Fixed: newly mapped LUNs never got a multipath map on a node using the
+    Debian and Proxmox default 'find_multipaths strict'. Under that setting
+    multipathd builds a map only for a WWID already listed in
+    /etc/multipath/wwids, however many healthy paths there are, and nothing
+    wrote that entry. multipath_claim_wwid now runs 'multipath -a <wwid>'
+    before offering the paths, which claims one WWID and leaves the node's
+    policy alone. Reported on a PowerStore over FC by Alexander Gott
+    (@alexandergott-afk) in issue #6; PowerVault and Unity had the same gap.
+  * Fixed: the diagnostic for that case named find_multipaths but described
+    the wrong mechanism, telling the operator to check for a second path when
+    'strict' does not care how many paths there are. It now separates strict
+    from yes and smart, and reports whether the WWID is in the wwids file.
+  * Fixed: _release_volume, the delete path for config backup volumes and
+    temporary snapshot clones, did no local device cleanup at all. The sd
+    paths it left behind are what produce the kernel's "LUN assignments on
+    this target have changed" once a freed LUN id is reused. cleanup_lun_
+    devices already existed and this path simply never called it. Reported as
+    issue #7. The other messages in that report are the deliberate cost of
+    unmapping before cleaning up, which is what stops an in-flight rescan
+    rebuilding the device.
+  * Fixed: a volume in a group this plugin did not create could never be
+    deleted. PowerStore refuses to delete a volume that is still a member,
+    confirmed by the reporter in issue #3, so removal is mandatory. The
+    delete path now removes the volume from every group it is in, while a
+    rename still leaves an operator's own group alone.
+  * docs/TESTING.md: the customer's PowerStore is on Fibre Channel, so that
+    data path is verified on two families now and iSCSI on PowerStore is
+    recorded as entirely unrun.
+
+ -- Jason Cheng <jason@jason.tools>  Mon, 24 Aug 2026 20:00:00 +0800
+
 jt-pve-storage-dellemc (0.8.18~beta1-1) unstable; urgency=medium
 
   * BETA RELEASE. Not for production use.

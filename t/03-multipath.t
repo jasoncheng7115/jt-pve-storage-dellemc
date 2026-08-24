@@ -333,14 +333,31 @@ CONF
 
     is($n, 2, 'every path found for the WWID is offered to multipathd');
     is_deeply(\@commands, [
+        '/sbin/multipath -a 3600abc0000000001',
         '/sbin/multipathd add path sdb',
         '/sbin/multipathd add path sdc',
-    ], 'by name, one at a time');
+    ], 'the WWID is claimed first, then the paths by name, one at a time');
 
     unlike(join(' ', @commands), qr/reconfigure/,
         'and never with a node-wide reconfigure')
         or diag('a reconfigure reapplies configuration to every map on the'
               . ' node, including storage this plugin does not manage');
+
+    # 'find_multipaths strict' is the Debian and Proxmox default, and under it
+    # multipathd builds a map only for a WWID already in /etc/multipath/wwids
+    # - however many paths there are. Nothing wrote that entry, so every
+    # dynamically provisioned LUN stayed an orphan (issue #6).
+    is($commands[0], '/sbin/multipath -a 3600abc0000000001',
+        'the WWID is added to the wwids file before the paths are offered,'
+      . ' because under find_multipaths strict no map is built without it');
+
+    # And it is done the scoped way. Changing find_multipaths itself lives in
+    # the defaults section and would change how multipathd treats every
+    # vendor's storage on this node, which is rule 4a's line.
+    unlike(join(' ', @commands), qr/find_multipaths/,
+        'and never by changing the node-wide find_multipaths setting');
+    is(scalar(grep { /-a / } @commands), 1,
+        'exactly one WWID is claimed, not a policy change');
 }
 
 {

@@ -1645,13 +1645,58 @@ sub _purge_own_snapshots {
 
 # Unmap from everywhere, then delete. Used by every rollback path: deleting a
 # volume that is still mapped leaves other nodes with ghost LUNs.
+# The short delete path: config backup volumes, temporary snapshot clones, and
+# the cleanup after a failed create. free_image is the one for a VM disk.
+#
+# It cleans the node's own devices as free_image does, and for the same reason
+# cleanup_lun_devices gives: an sd path left behind after the array has
+# dropped the LUN is what produces the kernel's "LUN assignments on this
+# target have changed" later, once this plugin hands the freed LUN id to the
+# next volume - and next_free_lun reuses the lowest free id, so it will.
+# Reported against 0.8.17 on a PowerStore over FC as issue #7.
+#
+# The cleanup existed and this path simply never called it, which is lesson
+# 36's shape: a rule that was written, tested, and not wired in.
+#
+# Unmap first, then clean locally. That is free_image's order and the reason
+# is the same: cleaning first lets an in-flight rescan on any node re-import
+# the LUN and rebuild the device behind us. The cost of this order is that the
+# kernel logs a failed Synchronize Cache for a LUN the array has already
+# dropped, which is noise; the cost of the other order is a device that
+# answers nothing, which is not.
 sub _release_volume {
     my ($class, $scfg, $storeid, $array_name) = @_;
+
+    # Both are read BEFORE the unmap. Afterwards the array no longer resolves
+    # the volume to a WWID, and the map can be gone with the ability to
+    # enumerate what was under it.
+    my $wwid = eval { $class->_array_get_wwid($scfg, $array_name) };
+
+    my @slaves;
+    if ($wwid) {
+        my $mpath = eval { get_multipath_device($wwid) };
+        if ($mpath) {
+            my $list = eval { get_multipath_slaves($mpath) } // [];
+            @slaves = @$list;
+        }
+    }
 
     my $hosts = eval { $class->_array_mapped_hosts($scfg, $array_name) } // [];
     for my $host (@$hosts) {
         eval { $class->_array_unmap_from_host($scfg, $array_name, $host) };
         warn "Failed to unmap '$array_name' from host '$host': $@" if $@;
+    }
+
+    if ($wwid) {
+        eval { cleanup_lun_devices($wwid) };
+        warn "Local device cleanup for '$array_name' failed: $@" if $@;
+
+        # cleanup_lun_devices walks the map's slaves, and when it had to fall
+        # back to dmsetup that list is already gone. Use the one captured
+        # above, as free_image does.
+        for my $slave (@slaves) {
+            eval { remove_scsi_device($slave) } if is_block_device($slave);
+        }
     }
 
     $class->_assert_own_object($storeid, $array_name, 'delete volume');

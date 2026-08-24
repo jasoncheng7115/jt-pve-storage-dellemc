@@ -537,6 +537,28 @@ sub volume_group_get {
         { select => $self->_volume_group_select }, %opts);
 }
 
+# Which groups this volume is actually in, rather than which one this plugin
+# would have put it in. Needed on the delete path: PowerStore refuses to delete
+# a volume that is still a member (confirmed on a customer's array, issue #3),
+# so the removal has to find the group even when somebody moved the volume.
+#
+# A select of its own, not _volume_select, because that one runs on every poll
+# and this is wanted only when a volume is being deleted.
+sub volume_groups_of {
+    my ($self, $id, %opts) = @_;
+
+    my $row = $self->get_or_undef("/volume/$id",
+        { select => 'id,volume_groups(id,name)' }, %opts);
+
+    return [] unless ref($row) eq 'HASH';
+
+    my $groups = $row->{volume_groups};
+    return [] unless ref($groups) eq 'ARRAY';
+
+    return [ grep { ref($_) eq 'HASH' && defined $_->{id} && length $_->{id} }
+             @$groups ];
+}
+
 sub volume_group_create {
     my ($self, $name, %opts) = @_;
 

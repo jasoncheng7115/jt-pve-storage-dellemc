@@ -171,7 +171,7 @@
     <div class="hero__glow"></div>
     <div class="hero__glow-left"></div>
     <div class="hero__content">
-        <div class="hero__badge">v0.8.18~beta1 <span class="hero__badge-sep"></span> MIT License</div>
+        <div class="hero__badge">v0.8.19~beta1 <span class="hero__badge-sep"></span> MIT License</div>
         <h1 class="hero__title">jt-pve-storage-dellemc</h1>
         <p class="hero__project-desc">
             <span class="lang-en">Dell EMC Storage Plugins for Proxmox VE</span>
@@ -1138,8 +1138,8 @@ DellPowerFlexPlugin                  <span class="comment"># no SCSI LUN, no mul
         <span class="lang-zh">驗證狀態</span>
     </h2>
     <p class="section-subtitle">
-        <span class="lang-en">3,316 unit tests run without an array or a device. What they cannot tell you is whether the endpoints exist, whether the field names are right, or whether a device ever appears &mdash; only an array can, and exactly one has.</span>
-        <span class="lang-zh">3,316 個單元測試不需要儲存伺服器或實體裝置即可執行。它們無法告訴你的是：端點是否存在、欄位名稱是否正確、裝置到底會不會出現 &mdash; 那隻有儲存伺服器能回答，而目前只有一台回答過。</span>
+        <span class="lang-en">3,327 unit tests run without an array or a device. What they cannot tell you is whether the endpoints exist, whether the field names are right, or whether a device ever appears &mdash; only an array can, and exactly one has.</span>
+        <span class="lang-zh">3,327 個單元測試不需要儲存伺服器或實體裝置即可執行。它們無法告訴你的是：端點是否存在、欄位名稱是否正確、裝置到底會不會出現 &mdash; 那隻有儲存伺服器能回答，而目前只有一台回答過。</span>
     </p>
 
     <h3>
@@ -1174,7 +1174,7 @@ DellPowerFlexPlugin                  <span class="comment"># no SCSI LUN, no mul
                     <td><span class="lang-en">iSCSI, FC</span><span class="lang-zh">iSCSI、FC</span></td>
                     <td><span class="status-badge status-badge--supported">
                         <span class="lang-en">partly verified</span><span class="lang-zh">部分驗證</span></span></td>
-                    <td><span class="lang-en">create, map, device discovery, snapshot creation and guests running off it are confirmed on a customer's array. Snapshot deletion, rollback and migration between nodes are not. Which protocol that array runs has not been stated</span><span class="lang-zh">建立、對應、裝置探索、快照建立，以及客體實際跑在上面，都已在客戶的儲存伺服器上確認。快照刪除、倒回與節點間遷移則沒有。那台走的是哪一種協定，對方沒有說明</span></td>
+                    <td><span class="lang-en">create, map, device discovery, snapshot creation and guests running off it are confirmed on a customer's array. Snapshot deletion, rollback and migration between nodes are not. That array is on Fibre Channel, so iSCSI on PowerStore remains entirely unrun</span><span class="lang-zh">建立、對應、裝置探索、快照建立，以及客體實際跑在上面，都已在客戶的儲存伺服器上確認。快照刪除、倒回與節點間遷移則沒有。那台走的是 Fibre Channel，所以 PowerStore 上的 iSCSI 完全沒有跑過</span></td>
                 </tr>
                 <tr>
                     <td><strong>PowerFlex</strong></td>
@@ -1299,6 +1299,15 @@ DellPowerFlexPlugin                  <span class="comment"># no SCSI LUN, no mul
         <span class="lang-en">Changelog</span>
         <span class="lang-zh">變更紀錄</span>
     </h2>
+
+    <div class="changelog-entry">
+        <div class="changelog-version">v0.8.19~beta1</div>
+        <div class="changelog-date">2026-08-24</div>
+        <div class="changelog-summary">
+            <span class="lang-en">A newly mapped LUN never got a multipath map on a default Debian or Proxmox node: find_multipaths strict builds a map only for a WWID already in /etc/multipath/wwids, however many healthy paths exist, and nothing wrote that entry. The plugin now claims the one WWID with multipath -a rather than changing a node-wide setting. Reported by Alexander Gott (@alexandergott-afk), issue #6 &mdash; thank you. Also: the delete path for config volumes and temporary clones did no local device cleanup, which is what leaves stale sd paths behind, and a volume in somebody else's volume group could never be deleted.</span>
+            <span class="lang-zh">在 Debian 或 Proxmox 的預設節點上，新對應的 LUN 從來不會產生 multipath map：find_multipaths strict 只會替已經列在 /etc/multipath/wwids 裡的 WWID 建立 map，無論有幾條健康路徑，而從來沒有東西寫入那一筆。外掛現在改用 multipath -a 認領那一個 WWID，而不是去改動整台節點的設定。由 Alexander Gott（@alexandergott-afk）在 issue #6 回報 &mdash; 在此致謝。另外：設定磁碟區與暫時複製的刪除路徑沒有做本機裝置清理，那正是殘留 sd 路徑的來源；而位於他人 volume group 中的磁碟區則永遠刪不掉。</span>
+        </div>
+    </div>
 
     <div class="changelog-entry">
         <div class="changelog-version">v0.8.18~beta1</div>

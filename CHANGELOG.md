@@ -7,6 +7,64 @@ Versioning: the patch number increments per release and runs to .99 before
 the minor number moves — 0.7.0, 0.7.1, … 0.7.99, then 0.8.0. Every 0.x
 release is a prerelease; 1.0.0 is the on-hardware test pass.
 
+## [0.8.19~beta1] - 2026-08-24
+
+### Fixed
+- **A newly mapped LUN never got a multipath map on a default Debian or
+  Proxmox node.** `find_multipaths strict` is that default, and under it
+  multipathd builds a map **only for a WWID already listed in
+  `/etc/multipath/wwids`** — however many healthy paths there are. Nothing
+  ever wrote that entry, so every dynamically provisioned volume stayed a set
+  of orphan paths until an operator added the WWID by hand.
+
+  `multipath_claim_wwid` now runs `multipath -a <wwid>` before offering the
+  paths. That claims exactly one WWID and leaves the node's policy alone,
+  which is the reason for doing it this way rather than changing
+  `find_multipaths`: that setting lives in the defaults section and would
+  change how multipathd treats **every** vendor's storage on the node.
+
+  Reported on a PowerStore over Fibre Channel by
+  **Alexander Gott ([@alexandergott-afk](https://github.com/alexandergott-afk))**
+  in [issue #6](https://github.com/jasoncheng7115/jt-pve-storage-dellemc/issues/6).
+  Thank you. PowerVault and Unity reach the same code and had the same gap;
+  PowerFlex does not use dm-multipath and is unaffected.
+
+- **The diagnostic for that case sent the operator to the fabric.** It named
+  `find_multipaths` correctly and then described the wrong mechanism, saying
+  multipathd "will not build a map for a LUN it can only see one path to" —
+  which is what `yes` does. `strict` does not care how many paths there are.
+  Someone reading it would go and check cabling and zoning while the cabling
+  was fine. The message now separates `strict` from `yes` and `smart`, and
+  says whether this WWID is actually in the wwids file.
+
+- **`_release_volume` did no local device cleanup at all.** That is the delete
+  path for config backup volumes and the temporary clones used to read a
+  snapshot, and the sd paths it left behind are exactly what produces the
+  kernel's *LUN assignments on this target have changed* once this plugin
+  hands the freed LUN id to the next volume, which `next_free_lun` will do
+  because it reuses the lowest free id. `cleanup_lun_devices` already existed
+  and carried a comment naming that symptom; this path simply never called
+  it. Reported as [issue #7](https://github.com/jasoncheng7115/jt-pve-storage-dellemc/issues/7).
+
+  The other messages in that report are not a defect. Unmapping on the array
+  before cleaning up locally is deliberate: the other order lets an in-flight
+  rescan on any node re-import the LUN and rebuild the device behind us, and a
+  device that answers nothing is worse than a failed `Synchronize Cache` in
+  the log for a LUN the array has already dropped.
+
+- **A volume in a group this plugin did not create could never be deleted.**
+  PowerStore refuses to delete a volume that is still a member of a volume
+  group, confirmed by the reporter about his own array in issue #3, which
+  turns removal from tidiness into a required step. The delete path now takes
+  the volume out of every group it is actually in, read from the volume rather
+  than assumed from its name. A rename still leaves an operator's own group
+  alone: there the volume survives, and where it was put was deliberate.
+
+### Changed
+- `docs/TESTING.md`: that PowerStore is on **Fibre Channel**, answered in
+  issue #3. The FC data path is now verified on two families, and iSCSI on
+  PowerStore is recorded as entirely unrun rather than merely unmentioned.
+
 ## [0.8.18~beta1] - 2026-08-24
 
 ### Added

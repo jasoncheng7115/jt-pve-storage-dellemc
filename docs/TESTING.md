@@ -67,12 +67,12 @@ established and what it did not. What the PowerStore has established so far:
 | **A guest running off array volumes** | issue #2 snapshots a running VM with the guest agent responding |
 | The 1 MB config volume's whole lifecycle: create, map, rescan, device, mkfs, mount, write, unmap | issue #2, which measured all of it at 8 seconds |
 
+| **The array refuses to delete a volume that is still in a volume group** | stated by the reporter of issue #3 about his own array, which is why removing from the group is a required step and not tidiness |
+| **The data path is Fibre Channel** | answered in issue #3. So the FC half of the host side is what has been exercised, and iSCSI on PowerStore remains entirely unrun |
+
 **Still unrun on a PowerStore**: snapshot deletion, rollback, volume deletion,
-resize, live migration between nodes, and capacity reporting through
-`POST /metrics/generate`. **And the protocol is not known** — neither issue
-says whether that array is on iSCSI or FC, and the two exercise different
-halves of the host side. It is worth asking, because either answer settles a
-row in the table below.
+resize, live migration between nodes, iSCSI, and capacity reporting through
+`POST /metrics/generate`.
 
 Everything below is `NOT VERIFIED ON HARDWARE` until it has been executed on a
 real array and the result recorded here together with the PowerStore OS
@@ -91,7 +91,7 @@ version it was observed on.
 | LUN id assignment behaviour | `PowerStore/API.pm` | NOT VERIFIED ON HARDWARE |
 | Volume size constraints (8 KiB granularity, **1 MiB minimum**) | `PowerStore/API.pm` | **VERIFIED** — the minimum by the array's own refusal of a 540672-byte EFI disk (issue #1). The granularity is still only from the developers guide |
 | Multipath device settings | `DellPowerStorePlugin.pm` | PARTLY — a map forms and carries data; the failover settings themselves are still unexercised |
-| Fibre Channel data path | everywhere | NOT VERIFIED ON HARDWARE |
+| Fibre Channel data path | everywhere | **VERIFIED** on PowerVault (an ME4024) and on PowerStore (issue #3). iSCSI is unrun on both |
 | What a restore does to snapshots taken after the restore point | `DellPowerStorePlugin.pm`, `DellPowerVaultPlugin.pm`, `DellPowerFlexPlugin.pm` | NOT VERIFIED ON HARDWARE |
 | WWPN spelling in a host object (bare hex vs colon-separated) | `DellPowerStorePlugin.pm`, `DellPowerVaultPlugin.pm` | **VERIFIED for both** — PowerStore refused the run-together form and takes colons (lesson 69), and host adoption has worked on a 500T over FC since; an ME4024 accepted the bare hex and mapped through it. Unity's `<wwnn>:<wwpn>` pairing remains unverified |
 | Thin-clone parent field used to report linked clones (`protection_data.source_id`, `ancestorVolumeId`) | `DellPowerStorePlugin.pm`, `DellPowerFlexPlugin.pm` | NOT VERIFIED ON HARDWARE |
@@ -402,7 +402,7 @@ which is noted per row; the rest are still inferred.
 | `appliance_id` | which appliance a volume is on | in the sample |
 | `physical_total`, `physical_used`, `total_physical`, `total_used` | capacity, from a metrics record | **not verified** |
 | `host_id`, `host_group_id`, `logical_unit_number`, `volume_id` | mapping rows | the same names the attach/detach request bodies use, which Dell's SDK confirms |
-| `volumes`, `protection_policy_id`, `is_write_order_consistent` | volume groups, for `pstore-volume-group-per-vm` | the names Dell's own `volumegroup` ansible module uses. **Whether a member's snapshots appear in `volumes` is NOT VERIFIED**, so the empty-group check counts only members reporting `type` `Primary`, which is safe either way |
+| `volumes`, `volume_groups`, `protection_policy_id`, `is_write_order_consistent` | volume groups, for `pstore-volume-group-per-vm`. `volume_groups` is read on a VOLUME, to find the group it is actually in before deleting it, since **PowerStore refuses to delete a volume that is still a member** (confirmed on a customer's array, issue #3) | the names Dell's own `volumegroup` ansible module uses. **Whether a member's snapshots appear in `volumes` is NOT VERIFIED**, so the empty-group check counts only members reporting `type` `Primary`, which is safe either way |
 | `address`, `target_iqn` | iSCSI portals | **not verified** |
 | `purposes` | which addresses publish an iSCSI target — a list, but a bare string is accepted too | **not verified** |
 | `messages[].message_l10n`, `messages[].code` | the array's own error text | **not verified** |

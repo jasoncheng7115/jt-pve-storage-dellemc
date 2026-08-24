@@ -631,6 +631,30 @@ sub multipath_claim_wwid {
     my $paths = get_scsi_paths_for_wwid($wwid, %opts);
     return 0 unless ref($paths) eq 'ARRAY' && @$paths;
 
+    # Put the WWID in /etc/multipath/wwids before offering the paths.
+    #
+    # 'find_multipaths strict' is the Debian and Proxmox default, and under it
+    # multipathd builds a map ONLY for a WWID already listed in that file. The
+    # number of paths is irrelevant: a LUN with four healthy FC paths and no
+    # entry gets no map at all, which is what a dynamically provisioned volume
+    # always looks like, because nothing ever writes the entry. Reported on a
+    # PowerStore over FC as issue #6, where every new LUN stayed an orphan
+    # until the WWID was added by hand.
+    #
+    # 'multipath -a' adds exactly one WWID. That is the whole reason to use it
+    # rather than the setting: changing find_multipaths lives in the defaults
+    # section and would change how multipathd treats EVERY vendor's storage on
+    # this node, which is rule 4a's line. This claims one WWID and leaves the
+    # node's policy alone.
+    #
+    # Best effort. On a node set to 'no' or 'greedy' the entry is redundant
+    # and harmless, and a failure here must not stop the paths being offered.
+    eval {
+        _run_cmd([MULTIPATH, '-a', $wwid],
+            allow_nonzero => 1, ignore_errors => 1,
+            timeout => $opts{timeout} // 10);
+    };
+
     for my $path (@$paths) {
         my ($node) = $path =~ m{([a-zA-Z0-9_+-]+)\z};
         next unless $node;
@@ -1622,7 +1646,23 @@ sub describe_wwid_state {
     if (@links) {
         my $setting = _multipath_setting('find_multipaths');
 
-        if (defined $setting && $setting =~ /^(?:strict|yes|smart)$/i) {
+        if (defined $setting && $setting =~ /^strict$/i) {
+            # 'strict' does not care how many paths there are. It builds a map
+            # only for a WWID already in /etc/multipath/wwids, so saying
+            # "check your paths" here sends the operator to the fabric when
+            # the fabric is fine (issue #6).
+            my $listed = _wwid_is_listed($want);
+            push @out, "  find_multipaths is 'strict' on this node. With that"
+                     . " setting multipathd builds a map only for a WWID"
+                     . " already listed in /etc/multipath/wwids, however many"
+                     . " paths there are, and this WWID is "
+                     . (defined $listed ? ($listed ? 'listed' : 'NOT listed')
+                                        : 'of unknown listing status')
+                     . ". This plugin adds it with 'multipath -a' when it"
+                     . " claims a device; if that did not happen, run"
+                     . " 'multipath -a $want' and then"
+                     . " 'multipathd add path <sdX>' for each path.";
+        } elsif (defined $setting && $setting =~ /^(?:yes|smart)$/i) {
             push @out, "  find_multipaths is '$setting' on this node, and the"
                      . " paths above exist while no map does. With that setting"
                      . " multipathd will not build a map for a LUN it can only"
@@ -1633,6 +1673,27 @@ sub describe_wwid_state {
     }
 
     return join("\n", @out);
+}
+
+# Is this WWID in /etc/multipath/wwids? undef when the file cannot be read.
+#
+# Diagnosis only. The file's format is one '/<wwid>/' per line, and the answer
+# is only used to tell an operator which half of 'strict' they are looking at,
+# so an unreadable file returns undef rather than guessing either way.
+sub _wwid_is_listed {
+    my ($wwid) = @_;
+
+    return undef unless defined $wwid && length $wwid;
+
+    my $content = sysfs_read_with_timeout('/etc/multipath/wwids', 3);
+    return undef unless defined $content;
+
+    for my $line (split /\n/, $content) {
+        next if $line =~ /^\s*#/;
+        return 1 if index(lc $line, lc $wwid) >= 0;
+    }
+
+    return 0;
 }
 
 # One setting as multipathd itself reports it, which is the merged result of

@@ -12,9 +12,26 @@ use warnings;
 
 use Test::More;
 
+use File::Temp qw(tempdir);
+
+# Keep this test out of the node's own state, however it is run.
+#
+# The Makefile exports PVE_DELLEMC_STATE_DIR and PVE_DELLEMC_RUN_DIR for every
+# test target, but running `prove -Ilib t/08-...` by hand bypasses that, and
+# _warn_once writes a throttle flag named after the storeid. On a node with a
+# storage of the same name that is production state (lesson 67), and it also
+# makes the test itself order-dependent: the second run finds the flag from
+# the first and the warning never fires. Setting it here means the test is
+# safe and repeatable on its own terms rather than on the harness's.
 BEGIN {
     eval { require PVE::Storage::Plugin; 1 }
         or plan skip_all => 'PVE::Storage::Plugin is not available (not a Proxmox VE node)';
+
+    my $tmp = File::Temp::tempdir(CLEANUP => 1);
+    mkdir "$tmp/lib";
+    mkdir "$tmp/run";
+    $ENV{PVE_DELLEMC_STATE_DIR} = "$tmp/lib";
+    $ENV{PVE_DELLEMC_RUN_DIR}   = "$tmp/run";
 }
 
 use PVE::Storage::Custom::DellPowerStorePlugin;
@@ -763,6 +780,114 @@ my $OURS = { id => 'vg-1', name => 'pve-ps1-104-vg',
         'the config backup volume resolves no group');
     is($api->{creates}, 0, '... and creates none');
     is($api->{gets}, 0, '... and does not even ask');
+}
+
+# ---------------------------------------------------------------------------
+# Leaving a group: the volume is going away vs the volume is moving
+#
+# The reporter confirmed on his array that PowerStore refuses to delete a
+# volume that is still a member of a volume group (issue #3). That turns
+# removal from tidiness into a required step, and it changes what to do about
+# a group this plugin did not create:
+#
+#   deleting  the volume is about to stop existing, so taking it out of
+#             somebody's group is not damage. Refusing would leave a disk PVE
+#             has asked to delete undeletable forever.
+#   renaming  the volume survives. An operator put it there deliberately and a
+#             reassignment is not a reason to overrule them.
+# ---------------------------------------------------------------------------
+
+{
+    package Test::VgMembership;
+    sub new { my ($c,%a)=@_; bless { removed => [], %a }, $c }
+    sub volume_groups_of { return $_[0]->{groups} // [] }
+    sub volume_group_get {
+        my ($self, $id) = @_;
+        return $self->{details}{$id};
+    }
+    sub volume_group_remove_members {
+        my ($self, $id, $ids) = @_;
+        push @{ $self->{removed} }, $id;
+        return 1;
+    }
+}
+
+my $FOREIGN = { id => 'vg-theirs', name => 'finance-vg',
+                description => 'Finance VMs, do not touch' };
+my $MINE    = { id => 'vg-mine',  name => 'pve-ps1-104-vg',
+                description => $P->_vg_description('ps1', 104) };
+
+{
+    no warnings 'redefine', 'once';
+    my $api = Test::VgMembership->new(
+        groups  => [ { id => 'vg-theirs', name => 'finance-vg' } ],
+        details => { 'vg-theirs' => $FOREIGN },
+    );
+    local *PVE::Storage::Custom::DellPowerStorePlugin::_api = sub { $api };
+
+    my $touched = $P->_vg_release({}, 'ps1', 'pve-ps1-104-disk0', 'v-1',
+        leaving => 1);
+
+    is_deeply($api->{removed}, ['vg-theirs'],
+        'deleting a volume removes it even from a group this plugin did not'
+      . ' create, because the array refuses to delete a member')
+        or diag('without this the volume can never be deleted at all');
+    is_deeply($touched, ['vg-theirs'], '... and reports what it left');
+}
+
+{
+    no warnings 'redefine', 'once';
+    my $api = Test::VgMembership->new(
+        groups  => [ { id => 'vg-theirs', name => 'finance-vg' } ],
+        details => { 'vg-theirs' => $FOREIGN },
+    );
+    local *PVE::Storage::Custom::DellPowerStorePlugin::_api = sub { $api };
+
+    my $touched = $P->_vg_release({}, 'ps1', 'pve-ps1-104-disk0', 'v-1');
+
+    is_deeply($api->{removed}, [],
+        'moving a volume between VMs leaves an operator\x27s own group alone');
+    is_deeply($touched, [], '... and reports nothing to reap');
+}
+
+{
+    no warnings 'redefine', 'once';
+    my $api = Test::VgMembership->new(
+        groups  => [ { id => 'vg-mine', name => 'pve-ps1-104-vg' } ],
+        details => { 'vg-mine' => $MINE },
+    );
+    local *PVE::Storage::Custom::DellPowerStorePlugin::_api = sub { $api };
+
+    $P->_vg_release({}, 'ps1', 'pve-ps1-104-disk0', 'v-1');
+    is_deeply($api->{removed}, ['vg-mine'],
+        'a group this plugin created is left on a rename, as the VMID must'
+      . ' keep matching the one Proxmox shows');
+}
+
+{
+    no warnings 'redefine', 'once';
+    # The membership cannot be read. Removing nothing is right: the delete
+    # below will be refused by the array and say so, which is better than
+    # guessing which groups to strip.
+    package Test::VgUnreadable;
+    sub new { bless { removed => [] }, shift }
+    sub volume_groups_of { die "the array is not answering\n" }
+    sub volume_group_remove_members { push @{ $_[0]{removed} }, $_[1]; 1 }
+}
+
+{
+    no warnings 'redefine', 'once';
+    my $api = Test::VgUnreadable->new;
+    local *PVE::Storage::Custom::DellPowerStorePlugin::_api = sub { $api };
+    my @warnings;
+    local $SIG{__WARN__} = sub { push @warnings, $_[0] };
+
+    my $touched = $P->_vg_release({}, 'ps1', 'pve-ps1-104-disk0', 'v-1',
+        leaving => 1);
+
+    is_deeply($touched, [], 'an unreadable membership removes nothing');
+    is_deeply($api->{removed}, [], '... and strips no group on a guess');
+    ok(scalar(grep { /membership/ } @warnings), '... and says so');
 }
 
 done_testing();

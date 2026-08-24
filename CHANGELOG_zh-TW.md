@@ -5,6 +5,55 @@ English version: [CHANGELOG.md](CHANGELOG.md)
 
 版本規則：小版號逐次遞增，到 .99 才進位到次版號 —— 0.7.0、0.7.1、……、0.7.99，然後 0.8.0。所有 0.x 版本都屬於預先發行版；1.0.0 的門檻是實機測試通過。
 
+## [0.8.19~beta1] - 2026-08-24
+
+### 已修正
+- **在 Debian 或 Proxmox 的預設節點上，新對應的 LUN 從來不會產生 multipath map。**
+  `find_multipaths strict` 就是那個預設值，而在該設定下，multipathd **只會替已經列在
+  `/etc/multipath/wwids` 裡的 WWID 建立 map**，無論實際上有幾條健康的路徑。而從來
+  沒有任何東西會寫入那一筆，所以每一個動態配置出來的磁碟區，都只是一堆孤兒路徑，
+  直到操作者手動把 WWID 加進去為止。
+
+  `multipath_claim_wwid` 現在會在提供路徑之前先執行 `multipath -a <wwid>`。它只認領
+  一個 WWID，不動這台節點的政策 —— 這正是選擇這個作法、而不是去改 `find_multipaths`
+  的原因：那個設定位於 defaults 區段，會改變 multipathd 對這台節點上**每一家廠商**
+  儲存的處理方式。
+
+  由 **Alexander Gott（[@alexandergott-afk](https://github.com/alexandergott-afk)）**
+  在 [issue #6](https://github.com/jasoncheng7115/jt-pve-storage-dellemc/issues/6)
+  以走 Fibre Channel 的 PowerStore 回報。在此致謝。PowerVault 與 Unity 會走到同一段
+  程式碼，缺口相同；PowerFlex 不使用 dm-multipath，不受影響。
+
+- **針對這個狀況的診斷訊息，會把操作者帶去查佈線。** 它正確地點名了
+  `find_multipaths`，卻描述了錯的機制，說 multipathd「不會替只看得到一條路徑的 LUN
+  建立 map」—— 那是 `yes` 的行為。`strict` 根本不在乎有幾條路徑。照那句話去讀的人，
+  會去檢查佈線與 zoning，而佈線一點問題也沒有。現在訊息把 `strict` 與 `yes`、`smart`
+  分開說明，並且會直接告訴你這個 WWID 到底在不在 wwids 檔裡。
+
+- **`_release_volume` 完全沒有做本機裝置清理。** 那是設定備份磁碟區、以及讀取快照用的
+  暫時複製所走的刪除路徑，而它留下來的 sd 路徑，正是核心那句
+  *LUN assignments on this target have changed* 的成因 —— 當本外掛把釋放出來的 LUN
+  ID 交給下一個磁碟區時就會發生，而 `next_free_lun` 一定會這麼做，因為它取的是最低的
+  可用號碼。`cleanup_lun_devices` 早就存在，註解裡甚至點名了這個症狀，只是這條路徑
+  從來沒有呼叫過它。回報於
+  [issue #7](https://github.com/jasoncheng7115/jt-pve-storage-dellemc/issues/7)。
+
+  該回報中其餘的訊息並不是缺陷。先在儲存伺服器上解除對應、再做本機清理是刻意的：
+  相反的順序會讓任何節點上正在進行的 rescan 把 LUN 重新匯入、把裝置重建回來，而一個
+  「什麼都回答不了的裝置」，比日誌裡一句對已被儲存伺服器丟棄的 LUN 所做的
+  `Synchronize Cache` 失敗嚴重得多。
+
+- **位於「非本外掛建立」的群組中的磁碟區，永遠刪不掉。** PowerStore 會拒絕刪除仍然
+  屬於某個 volume group 的磁碟區，這一點由回報者針對他自己的儲存伺服器在 issue #3
+  中確認，因此「移出群組」從整理變成了必要步驟。刪除路徑現在會把磁碟區從它**實際**
+  所屬的每一個群組中移除，而且那份歸屬是從磁碟區本身讀來的，不是從名稱推論的。改名
+  時仍然不動操作者自己的群組：那裡磁碟區還會繼續存在，而它被放在哪裡是刻意的。
+
+### 已變更
+- `docs/TESTING.md`：那台 PowerStore 走的是 **Fibre Channel**，在 issue #3 中得到答案。
+  FC 資料路徑現在在兩個家族上都算已驗證，而 PowerStore 上的 iSCSI 則明確記載為完全
+  沒有跑過，而不只是沒有被提到。
+
 ## [0.8.18~beta1] - 2026-08-24
 
 ### 新增
