@@ -7,6 +7,36 @@ Versioning: the patch number increments per release and runs to .99 before
 the minor number moves — 0.7.0, 0.7.1, … 0.7.99, then 0.8.0. Every 0.x
 release is a prerelease; 1.0.0 is the on-hardware test pass.
 
+## [0.8.21~beta1] - 2026-08-24
+
+### Fixed
+- **A wrong explanation, in the code and in the 0.8.19 changelog.** Both said
+  that the kernel's *LUN assignments on this target have changed* is what a
+  stale sd path produces once a freed LUN id is reused.
+
+  It is not. That line is the ordinary unit attention an array raises whenever
+  its LUN inventory changes, so this plugin causes one on **every map and every
+  unmap**, and so does every other array. The node used for local verification
+  here runs only NetApp iSCSI and has no Dell storage configured at all: it has
+  logged that message **396 times in sixty days**.
+
+  The reporter of
+  [issue #7](https://github.com/jasoncheng7115/jt-pve-storage-dellemc/issues/7)
+  came back saying the message was still appearing after 0.8.19, which is how
+  this was caught. Thank you.
+
+  The cleanup added in 0.8.19 stands, and was worth making for a different
+  reason than the one given: `_release_volume` left sd paths that still
+  describe the volume which used to be at that LUN id, and `next_free_lun`
+  reuses the lowest free id, so a different volume arrives there and nothing
+  in the SCSI layer corrects a device node whose identity no longer matches
+  what is behind it. That is the hazard. The kernel message was never how to
+  detect it.
+
+  The 0.8.19 entry above carries the correction rather than being rewritten,
+  as the 0.7.88 entry does for the same reason: a changelog is a claim, and a
+  quietly edited one hides that the claim was ever made.
+
 ## [0.8.20~beta1] - 2026-08-24
 
 ### Fixed
@@ -79,10 +109,15 @@ release is a prerelease; 1.0.0 is the on-hardware test pass.
 
 - **`_release_volume` did no local device cleanup at all.** That is the delete
   path for config backup volumes and the temporary clones used to read a
-  snapshot, and the sd paths it left behind are exactly what produces the
-  kernel's *LUN assignments on this target have changed* once this plugin
-  hands the freed LUN id to the next volume, which `next_free_lun` will do
-  because it reuses the lowest free id. `cleanup_lun_devices` already existed
+  snapshot, and the sd paths it left behind still describe the volume which
+  used to be at that LUN id, which `next_free_lun` will hand to another volume
+  because it reuses the lowest free id.
+
+  > **Corrected in 0.8.21.** This entry originally said those sd paths are
+  > what produces the kernel's *LUN assignments on this target have changed*.
+  > They are not. That line is the unit attention any array raises when its
+  > LUN inventory changes. The cleanup was still worth making; the message was
+  > never its indicator. `cleanup_lun_devices` already existed
   and carried a comment naming that symptom; this path simply never called
   it. Reported as [issue #7](https://github.com/jasoncheng7115/jt-pve-storage-dellemc/issues/7).
 

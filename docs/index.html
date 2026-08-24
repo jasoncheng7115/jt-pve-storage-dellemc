@@ -171,7 +171,7 @@
     <div class="hero__glow"></div>
     <div class="hero__glow-left"></div>
     <div class="hero__content">
-        <div class="hero__badge">v0.8.20~beta1 <span class="hero__badge-sep"></span> MIT License</div>
+        <div class="hero__badge">v0.8.21~beta1 <span class="hero__badge-sep"></span> MIT License</div>
         <h1 class="hero__title">jt-pve-storage-dellemc</h1>
         <p class="hero__project-desc">
             <span class="lang-en">Dell EMC Storage Plugins for Proxmox VE</span>
@@ -1299,6 +1299,15 @@ DellPowerFlexPlugin                  <span class="comment"># no SCSI LUN, no mul
         <span class="lang-en">Changelog</span>
         <span class="lang-zh">變更紀錄</span>
     </h2>
+
+    <div class="changelog-entry">
+        <div class="changelog-version">v0.8.21~beta1</div>
+        <div class="changelog-date">2026-08-24</div>
+        <div class="changelog-summary">
+            <span class="lang-en">A correction. The code and the 0.8.19 entry both said the kernel's "LUN assignments on this target have changed" is what a stale sd path produces. It is not: that line is the unit attention any array raises when its LUN inventory changes, so this plugin causes one on every map and unmap. A node here with only NetApp iSCSI and no Dell storage has logged it 396 times in sixty days. The reporter of issue #7 came back with the message still appearing, which is how it was caught. The cleanup added in 0.8.19 stands, for a different reason than was given.</span>
+            <span class="lang-zh">一則更正。程式碼與 0.8.19 的紀錄都說核心那句「LUN assignments on this target have changed」是殘留 sd 路徑造成的。並不是：那是任何儲存伺服器在 LUN 清單變動時都會送出的 unit attention，所以本外掛每一次對應與解除對應都會觸發。這裡一台只有 NetApp iSCSI、沒有任何 Dell storage 的節點，六十天內記了 396 次。issue #7 的回報者升級後回來說訊息還在，才讓它被抓到。0.8.19 加入的清理仍然成立，只是理由與當初給的不同。</span>
+        </div>
+    </div>
 
     <div class="changelog-entry">
         <div class="changelog-version">v0.8.20~beta1</div>

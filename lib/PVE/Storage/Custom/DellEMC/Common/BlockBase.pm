@@ -1695,11 +1695,17 @@ sub _purge_own_snapshots {
 # the cleanup after a failed create. free_image is the one for a VM disk.
 #
 # It cleans the node's own devices as free_image does, and for the same reason
-# cleanup_lun_devices gives: an sd path left behind after the array has
-# dropped the LUN is what produces the kernel's "LUN assignments on this
-# target have changed" later, once this plugin hands the freed LUN id to the
-# next volume - and next_free_lun reuses the lowest free id, so it will.
-# Reported against 0.8.17 on a PowerStore over FC as issue #7.
+# cleanup_lun_devices gives: an sd path left behind after the array has dropped
+# the LUN still describes the volume that used to be at that LUN id, and
+# next_free_lun reuses the lowest free id, so a different volume will arrive
+# there. Raised by issue #7.
+#
+# The kernel's "LUN assignments on this target have changed" is NOT evidence of
+# that, and an earlier version of this comment said it was. That line is the
+# unit attention an array raises whenever its LUN inventory changes, which this
+# plugin causes on every map and unmap; a node here running only NetApp iSCSI
+# has logged it 396 times in sixty days. Leaving a stale device is worth fixing
+# on its own terms, and this is not how to detect it.
 #
 # The cleanup existed and this path simply never called it, which is lesson
 # 36's shape: a rule that was written, tested, and not wired in.

@@ -1,3 +1,22 @@
+jt-pve-storage-dellemc (0.8.21~beta1-1) unstable; urgency=low
+
+  * BETA RELEASE. Not for production use.
+  * Corrected, in the code comments and in the 0.8.19 changelog entry: the
+    kernel's "LUN assignments on this target have changed" is NOT evidence of
+    a stale sd path. It is the unit attention an array raises whenever its LUN
+    inventory changes, so this plugin causes one on every map and unmap, and
+    so does every other array. A node with only NetApp iSCSI and no Dell
+    storage at all has logged it 396 times in sixty days. The reporter of
+    issue #7 came back with the message still appearing, which is how the
+    wrong explanation was caught.
+  * The cleanup added in 0.8.19 stands and was worth making, for a different
+    reason than was given: _release_volume left sd paths that still describe
+    the volume which used to be at that LUN id, and next_free_lun reuses the
+    lowest free id, so a different volume arrives there. That is the hazard;
+    the kernel message was never its indicator.
+
+ -- Jason Cheng <jason@jason.tools>  Mon, 24 Aug 2026 23:59:00 +0800
+
 jt-pve-storage-dellemc (0.8.20~beta1-1) unstable; urgency=high
 
   * BETA RELEASE. Not for production use.

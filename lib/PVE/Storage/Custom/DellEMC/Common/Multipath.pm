@@ -1058,10 +1058,19 @@ sub list_vendor_multipath_devices {
 # longer part of the map.
 #
 # Those stale paths matter: once a volume is unmapped, an sd left bound to the
-# freed H:C:T:L blocks the array from reusing that SCSI LUN-ID for a different
-# volume. The kernel then logs "LUN assignments on this target have changed"
-# and the new volume is unusable on that path. get_multipath_slaves() cannot
-# find them because they already dropped out of the map.
+# freed H:C:T:L still describes the volume that used to be there. When the
+# array gives that SCSI LUN-ID to a different volume, the node has a device
+# node whose identity no longer matches what is behind it, and nothing in the
+# SCSI layer corrects that on its own. get_multipath_slaves() cannot find them
+# because they already dropped out of the map.
+#
+# NOT diagnosable from the kernel's "LUN assignments on this target have
+# changed". That line is the ordinary unit attention an array raises whenever
+# its LUN inventory changes, so this plugin causes one on every map and unmap,
+# and so does every other array: a node here with only NetApp iSCSI and no Dell
+# storage at all has logged it 396 times in sixty days. It says the inventory
+# moved, not that anything is stale. The condition this sweep is for is checked
+# by looking for the device, which is what it does.
 #
 # Vendor-gated, so it never removes another vendor's device.
 sub get_scsi_paths_for_wwid {
@@ -1272,9 +1281,9 @@ sub cleanup_lun_devices {
     }
 
     # Sweep sd paths that were never in the map, or that outlived a map which
-    # was already flushed. Leaving them is what triggers the kernel's "LUN
-    # assignments on this target have changed" once the array reuses the
-    # freed LUN-ID.
+    # was already flushed. One left behind is a device node describing a
+    # volume that is no longer at that LUN-ID, and the SCSI layer will not
+    # correct it.
     my $stale = eval { get_scsi_paths_for_wwid($wwid, %opts) } // [];
     for my $dev (@$stale) {
         eval { remove_scsi_device($dev) };
