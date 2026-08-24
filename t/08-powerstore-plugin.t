@@ -499,4 +499,270 @@ SKIP: {
         '... and not the host: a detach names one or the other, never both');
 }
 
+# ---------------------------------------------------------------------------
+# Per-VM volume groups (issue #3)
+#
+# The feature is cosmetic on the array and destructive if it is wrong: it
+# deletes groups. Every test below is one of the ways that goes wrong.
+# ---------------------------------------------------------------------------
+
+# Which objects belong in a VM's group. The config backup volume is created
+# and deleted on EVERY snapshot and the temporary clones live for the length
+# of a backup, so letting either in makes the membership churn and makes "is
+# this group empty" a moving target.
+{
+    my $N = $P->naming;
+
+    for my $case (
+        ['pve-ps1-104-disk0',            104, 'an ordinary disk'],
+        ['pve-ps1-104-efidisk0',         104, 'an EFI disk'],
+        ['pve-ps1-104-tpmstate0',        104, 'a TPM state disk'],
+        ['pve-ps1-104-cloudinit',        104, 'a cloud-init disk'],
+    ) {
+        my ($name, $vmid, $what) = @$case;
+        is($P->_vg_vmid_of($name), $vmid, "$what joins VM $vmid\x27s group");
+    }
+
+    for my $case (
+        ['pve-ps1-104-vmconf-snap1',  'the config backup volume'],
+        ['pve-ps1-104-state-snap1',   'a vmstate volume'],
+        ['pve-ps1-104-fleece0',       'a fleecing volume'],
+        ['pve-ps1-104-disk0-tmpsnap-9', 'a temporary snapshot clone'],
+        ['someone-elses-volume',      'a volume that is not ours at all'],
+    ) {
+        my ($name, $what) = @$case;
+        is($P->_vg_vmid_of($name), undef, "$what stays out of the group");
+    }
+
+    # The group name comes from volume_prefix, so it collides only where the
+    # volume names already would - which on_add_hook already refuses.
+    is($N->encode_volume_group_name('ps1', 104), 'pve-ps1-104-vg',
+        'the group name shares the volume namespace');
+}
+
+# Ownership is proven by the marker this plugin wrote, never by the name.
+{
+    ok($P->_vg_is_ours({ description => $P->_vg_description('ps1', 104) }),
+        'a group this plugin created is recognised');
+    ok(!$P->_vg_is_ours({ description => 'Finance VMs, do not touch' }),
+        'an operator\x27s own group is not');
+    ok(!$P->_vg_is_ours({ name => 'pve-ps1-104-vg' }),
+        'and a matching NAME alone proves nothing - lesson 40');
+    ok(!$P->_vg_is_ours(undef), 'nothing at all is not ours either');
+}
+
+# The one that matters most, and the one the reported fork gets wrong.
+#
+# Its cleanup reads the group with `$vginfo->{volumes} // []`, so a
+# volume_group_get that FAILS yields an empty list and the group is deleted as
+# though it were empty. A briefly unreachable array then destroys a group that
+# may carry somebody's protection policy. "Could not ask" is not "there is
+# nothing there" (rule 21a).
+{
+    package Test::VgApi;
+    sub new {
+        my ($cls, %a) = @_;
+        return bless { deleted => [], %a }, $cls;
+    }
+    sub volume_group_get {
+        my ($self, $id) = @_;
+        die "the array is not answering\n" if $self->{unreachable};
+        return $self->{group};
+    }
+    sub volume_group_get_by_name { return $_[0]->{group} }
+    sub volume_group_delete {
+        my ($self, $id) = @_;
+        push @{ $self->{deleted} }, $id;
+        return 1;
+    }
+    sub volume_group_create { return $_[0]->{created_id} }
+    sub volume_group_add_members { return 1 }
+    sub volume_group_remove_members { return 1 }
+}
+
+my $OURS = { id => 'vg-1', name => 'pve-ps1-104-vg',
+             description => $P->_vg_description('ps1', 104) };
+
+{
+    no warnings 'redefine', 'once';
+
+    # 1. The array cannot be asked. The group must survive.
+    my $api = Test::VgApi->new(unreachable => 1, group => { %$OURS, volumes => [] });
+    local *PVE::Storage::Custom::DellPowerStorePlugin::_api = sub { $api };
+    my @warnings;
+    local $SIG{__WARN__} = sub { push @warnings, $_[0] };
+
+    $P->_vg_reap_if_empty({}, 'ps1', 'vg-1');
+    is_deeply($api->{deleted}, [],
+        'an unreachable array does NOT get its volume group deleted')
+        or diag('this is the defect in the reported fork');
+    ok(scalar(grep { /could not be read/ } @warnings),
+        '... and it says why the group was left in place');
+}
+
+{
+    no warnings 'redefine', 'once';
+
+    # 2. Empty, ours, unprotected: the only case that may be deleted.
+    my $api = Test::VgApi->new(group => { %$OURS, volumes => [] });
+    local *PVE::Storage::Custom::DellPowerStorePlugin::_api = sub { $api };
+    $P->_vg_reap_if_empty({}, 'ps1', 'vg-1');
+    is_deeply($api->{deleted}, ['vg-1'], 'an empty group of ours is removed');
+}
+
+{
+    no warnings 'redefine', 'once';
+
+    # 3. Empty, but an operator applied a protection policy to it. Turning
+    #    per-VM grouping on is not permission to delete their policy.
+    my $api = Test::VgApi->new(group => {
+        %$OURS, volumes => [], protection_policy_id => 'pp-7' });
+    local *PVE::Storage::Custom::DellPowerStorePlugin::_api = sub { $api };
+    my @warnings;
+    local $SIG{__WARN__} = sub { push @warnings, $_[0] };
+
+    $P->_vg_reap_if_empty({}, 'ps1', 'vg-1');
+    is_deeply($api->{deleted}, [],
+        'an empty group carrying a protection policy is left alone');
+    ok(scalar(grep { /protection policy/ } @warnings), '... and says so');
+}
+
+{
+    no warnings 'redefine', 'once';
+
+    # 4. Not ours. Never touched, however empty and however well the name
+    #    matches.
+    my $api = Test::VgApi->new(group => {
+        id => 'vg-9', name => 'pve-ps1-104-vg',
+        description => 'Finance VMs', volumes => [] });
+    local *PVE::Storage::Custom::DellPowerStorePlugin::_api = sub { $api };
+    $P->_vg_reap_if_empty({}, 'ps1', 'vg-9');
+    is_deeply($api->{deleted}, [],
+        'a group this plugin did not create is never deleted');
+}
+
+{
+    no warnings 'redefine', 'once';
+
+    # 5. Still holding a disk. Not empty, whatever else is true.
+    my $api = Test::VgApi->new(group => {
+        %$OURS, volumes => [{ id => 'v-1', type => 'Primary' }] });
+    local *PVE::Storage::Custom::DellPowerStorePlugin::_api = sub { $api };
+    $P->_vg_reap_if_empty({}, 'ps1', 'vg-1');
+    is_deeply($api->{deleted}, [], 'a group with a disk in it is kept');
+}
+
+{
+    no warnings 'redefine', 'once';
+
+    # 6. The array answered, but with no member list at all. That is not
+    #    "empty" either.
+    my $api = Test::VgApi->new(group => { %$OURS });
+    local *PVE::Storage::Custom::DellPowerStorePlugin::_api = sub { $api };
+    $P->_vg_reap_if_empty({}, 'ps1', 'vg-1');
+    is_deeply($api->{deleted}, [],
+        'a group whose membership the array did not report is kept');
+}
+
+# Two options claiming one slot. A volume belongs to at most one volume group,
+# so this has to be refused while the configuration can still be changed
+# rather than discovered later by whichever of the two lost (lesson 41).
+{
+    my $conflict = {
+        'pstore-volume-group'        => 'finance-vg',
+        'pstore-volume-group-per-vm' => 1,
+    };
+    ok(!eval { $P->_check_volume_group_options('ps1', $conflict); 1 },
+        'setting both volume group options is refused');
+    like($@, qr/at most one volume group/,
+        '... and the message says why, not just that');
+
+    ok(eval { $P->_check_volume_group_options('ps1',
+            { 'pstore-volume-group-per-vm' => 1 }); 1 },
+        'per-VM grouping on its own is fine');
+    ok(eval { $P->_check_volume_group_options('ps1',
+            { 'pstore-volume-group' => 'finance-vg' }); 1 },
+        'a named group on its own is fine');
+    ok(eval { $P->_check_volume_group_options('ps1', {}); 1 },
+        'and neither is the default');
+}
+
+# Resolving the group: the two ways it must not go wrong.
+#
+# PVE allocates disks in parallel, so a second disk of the same VM and a second
+# node race for this exact group. And a lookup that FAILED must never be read
+# as "there is no such group", because the answer to that is to create one.
+{
+    package Test::VgRace;
+    sub new { my ($c,%a)=@_; bless { gets => 0, creates => 0, %a }, $c }
+    sub volume_group_get_by_name {
+        my ($self) = @_;
+        $self->{gets}++;
+        die "the array is not answering\n" if $self->{unreachable};
+        # A racing worker created it between our lookup and our create.
+        return $self->{appears_on} && $self->{gets} >= $self->{appears_on}
+            ? $self->{group} : undef;
+    }
+    sub volume_group_create {
+        my ($self) = @_;
+        $self->{creates}++;
+        die "a volume group with that name already exists\n"
+            if $self->{create_conflicts};
+        return 'vg-new';
+    }
+}
+
+{
+    no warnings 'redefine', 'once';
+    my $api = Test::VgRace->new;
+    local *PVE::Storage::Custom::DellPowerStorePlugin::_api = sub { $api };
+
+    is($P->_vg_resolve_id({}, 'ps1', 'pve-ps1-104-disk0'), 'vg-new',
+        'a group is created for a VM that has none');
+}
+
+{
+    no warnings 'redefine', 'once';
+    # Two workers, one group: ours loses the create and finds the winner's.
+    my $api = Test::VgRace->new(
+        create_conflicts => 1, appears_on => 2,
+        group => { %$OURS },
+    );
+    local *PVE::Storage::Custom::DellPowerStorePlugin::_api = sub { $api };
+
+    is($P->_vg_resolve_id({}, 'ps1', 'pve-ps1-104-disk0'), 'vg-1',
+        'losing the race to create the group finds the winner\x27s, because'
+      . ' the lookup and the create are both inside the retry (rule 22)');
+}
+
+{
+    no warnings 'redefine', 'once';
+    my $api = Test::VgRace->new(unreachable => 1);
+    local *PVE::Storage::Custom::DellPowerStorePlugin::_api = sub { $api };
+    my @warnings;
+    local $SIG{__WARN__} = sub { push @warnings, $_[0] };
+
+    my $id = $P->_vg_resolve_id({}, 'ps1', 'pve-ps1-104-disk0');
+
+    is($id, undef, 'an unreachable array yields no group');
+    is($api->{creates}, 0,
+        '... and NO group is created off the back of a failed lookup, which'
+      . ' is how a duplicate appears');
+    ok(scalar(grep { /without a group/ } @warnings),
+        '... and the warning says the disk is being created anyway');
+}
+
+{
+    no warnings 'redefine', 'once';
+    # An auxiliary object never resolves a group at all, so it never creates
+    # one either.
+    my $api = Test::VgRace->new;
+    local *PVE::Storage::Custom::DellPowerStorePlugin::_api = sub { $api };
+
+    is($P->_vg_resolve_id({}, 'ps1', 'pve-ps1-104-vmconf-snap1'), undef,
+        'the config backup volume resolves no group');
+    is($api->{creates}, 0, '... and creates none');
+    is($api->{gets}, 0, '... and does not even ask');
+}
+
 done_testing();

@@ -171,7 +171,7 @@
     <div class="hero__glow"></div>
     <div class="hero__glow-left"></div>
     <div class="hero__content">
-        <div class="hero__badge">v0.8.17~beta1 <span class="hero__badge-sep"></span> MIT License</div>
+        <div class="hero__badge">v0.8.18~beta1 <span class="hero__badge-sep"></span> MIT License</div>
         <h1 class="hero__title">jt-pve-storage-dellemc</h1>
         <p class="hero__project-desc">
             <span class="lang-en">Dell EMC Storage Plugins for Proxmox VE</span>
@@ -204,8 +204,8 @@
     </h2>
     <div class="alert alert--danger">
         <strong>
-            <span class="lang-en">BETA SOFTWARE. One array has run this — a PowerVault ME4024 over Fibre Channel, which now also boots guests, grows disks, backs up and restores, runs containers and survives a reboot. PowerStore, PowerFlex, Unity, iSCSI and SAS remain unverified. Use at your own risk.</span>
-            <span class="lang-zh">BETA 版軟體。只有一台儲存伺服器跑過它 —— 一台走 Fibre Channel 的 PowerVault ME4024，現在也已通過客體開機、磁碟擴充、備份與還原、容器，以及重開機。PowerStore、PowerFlex、Unity、iSCSI 與 SAS 仍未驗證。使用風險自負。</span>
+            <span class="lang-en">BETA SOFTWARE. Two arrays have run this. A PowerVault ME4024 over Fibre Channel boots guests, grows disks, backs up and restores, runs containers and survives a reboot. A PowerStore creates, maps and snapshots volumes, and runs guests off them. PowerFlex and Unity have never been connected to anything, PowerVault's iSCSI path has not been run, and SAS is not implemented. Use at your own risk.</span>
+            <span class="lang-zh">BETA 版軟體。目前有兩台儲存伺服器跑過它。一台走 Fibre Channel 的 PowerVault ME4024，已通過客體開機、磁碟擴充、備份與還原、容器，以及重開機。一台 PowerStore 則已能建立、對應與快照磁碟區，並且有客體實際跑在上面。PowerFlex 與 Unity 從未連上過任何東西，PowerVault 的 iSCSI 路徑沒有跑過，而 SAS 尚未實作。使用風險自負。</span>
         </strong>
         <ul>
             <li>
@@ -1138,8 +1138,8 @@ DellPowerFlexPlugin                  <span class="comment"># no SCSI LUN, no mul
         <span class="lang-zh">驗證狀態</span>
     </h2>
     <p class="section-subtitle">
-        <span class="lang-en">3,244 unit tests run without an array or a device. What they cannot tell you is whether the endpoints exist, whether the field names are right, or whether a device ever appears &mdash; only an array can, and exactly one has.</span>
-        <span class="lang-zh">3,244 個單元測試不需要儲存伺服器或實體裝置即可執行。它們無法告訴你的是：端點是否存在、欄位名稱是否正確、裝置到底會不會出現 &mdash; 那隻有儲存伺服器能回答，而目前只有一台回答過。</span>
+        <span class="lang-en">3,316 unit tests run without an array or a device. What they cannot tell you is whether the endpoints exist, whether the field names are right, or whether a device ever appears &mdash; only an array can, and exactly one has.</span>
+        <span class="lang-zh">3,316 個單元測試不需要儲存伺服器或實體裝置即可執行。它們無法告訴你的是：端點是否存在、欄位名稱是否正確、裝置到底會不會出現 &mdash; 那隻有儲存伺服器能回答，而目前只有一台回答過。</span>
     </p>
 
     <h3>
@@ -1172,9 +1172,9 @@ DellPowerFlexPlugin                  <span class="comment"># no SCSI LUN, no mul
                 <tr>
                     <td><strong>PowerStore</strong></td>
                     <td><span class="lang-en">iSCSI, FC</span><span class="lang-zh">iSCSI、FC</span></td>
-                    <td><span class="status-badge status-badge--planned">
-                        <span class="lang-en">not verified</span><span class="lang-zh">未驗證</span></span></td>
-                    <td><span class="lang-en">never run against an array</span><span class="lang-zh">從未在任何儲存伺服器上執行過</span></td>
+                    <td><span class="status-badge status-badge--supported">
+                        <span class="lang-en">partly verified</span><span class="lang-zh">部分驗證</span></span></td>
+                    <td><span class="lang-en">create, map, device discovery, snapshot creation and guests running off it are confirmed on a customer's array. Snapshot deletion, rollback and migration between nodes are not. Which protocol that array runs has not been stated</span><span class="lang-zh">建立、對應、裝置探索、快照建立，以及客體實際跑在上面，都已在客戶的儲存伺服器上確認。快照刪除、倒回與節點間遷移則沒有。那台走的是哪一種協定，對方沒有說明</span></td>
                 </tr>
                 <tr>
                     <td><strong>PowerFlex</strong></td>
@@ -1299,6 +1299,15 @@ DellPowerFlexPlugin                  <span class="comment"># no SCSI LUN, no mul
         <span class="lang-en">Changelog</span>
         <span class="lang-zh">變更紀錄</span>
     </h2>
+
+    <div class="changelog-entry">
+        <div class="changelog-version">v0.8.18~beta1</div>
+        <div class="changelog-date">2026-08-24</div>
+        <div class="changelog-summary">
+            <span class="lang-en">A volume group per VM on PowerStore, off by default, so protection policies and consistent group snapshots can be applied per VM from PowerStore Manager. Requested by Alexander Gott (@alexandergott-afk), issue #3 &mdash; thank you. A volume belongs to at most one volume group, so it is mutually exclusive with pstore-volume-group, it never fails a disk creation, only VM disks join, and an empty group is deleted only when this plugin created it, the array answered, and no protection policy is attached. Also: two arrays have run this plugin, not one, and the release pages no longer contradict the install instructions.</span>
+            <span class="lang-zh">PowerStore 每台 VM 一個 volume group，預設關閉，讓保護原則與一致性群組快照可以直接在 PowerStore Manager 上以 VM 為單位套用。由 Alexander Gott（@alexandergott-afk）在 issue #3 提出 &mdash; 在此致謝。一個磁碟區最多只能屬於一個群組，所以它與 pstore-volume-group 互斥；它永遠不會讓磁碟建立失敗，只有 VM 磁碟會加入，而空群組只有在「本外掛建立的、儲存伺服器有回答、且沒有保護原則」三者同時成立時才會刪除。另外：跑過本外掛的儲存伺服器是兩台而不是一台，release 頁面的安裝說明也不再與其他文件矛盾。</span>
+        </div>
+    </div>
 
     <div class="changelog-entry">
         <div class="changelog-version">v0.8.17~beta1</div>

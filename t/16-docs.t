@@ -448,4 +448,104 @@ SKIP: {
     }
 }
 
+# ---------------------------------------------------------------------------
+# A document that counts the families counts them correctly
+#
+# "three storage types are code complete" survived the whole of Unity's
+# development, in both languages, and so did "check the three types
+# registered" in the first-run guide and "the three plugin modules" in the
+# release plan. A number in prose goes stale silently: nothing fails, and the
+# reader is simply told there is less here than there is. The docs site's own
+# test count had exactly this problem for eleven releases, which is why
+# check-doc-test-count exists.
+#
+# The number is taken from the plugin classes themselves rather than written
+# down again here. index.html and the changelogs are excluded on purpose:
+# they carry history, and "the three families need three different FC
+# identifier formats" was true when it was written.
+# ---------------------------------------------------------------------------
+
+{
+    my @families = qw(
+        PVE::Storage::Custom::DellPowerStorePlugin
+        PVE::Storage::Custom::DellPowerVaultPlugin
+        PVE::Storage::Custom::DellPowerFlexPlugin
+        PVE::Storage::Custom::DellUnityPlugin
+    );
+    my $expected = scalar @families;
+
+    my %word = (
+        two => 2, three => 3, four => 4, five => 5, six => 6,
+        "\x{5169}" => 2, "\x{4e09}" => 3, "\x{56db}" => 4,
+        "\x{4e94}" => 5, "\x{516d}" => 6,
+    );
+
+    my @docs = grep { -f $_ } qw(
+        README.md README_zh-TW.md
+        docs/ARCHITECTURE.md docs/ARCHITECTURE_zh-TW.md
+        docs/FIRST_RUN.md docs/FIRST_RUN_zh-TW.md
+        docs/RELEASE_TESTING.md docs/RELEASE_TESTING_zh-TW.md
+        docs/QUICKSTART.md docs/QUICKSTART_zh-TW.md
+        docs/TESTING.md docs/TESTING_zh-TW.md
+    );
+    ok(scalar(@docs) >= 8, 'the documents that count families were found');
+
+    for my $file (@docs) {
+        my $src = do {
+            open my $fh, '<:encoding(UTF-8)', $file or die "$file: $!";
+            local $/;
+            <$fh>;
+        };
+
+        my @bad;
+        my $lineno = 0;
+        for my $line (split /\n/, $src, -1) {
+            $lineno++;
+
+            # Only constructions that state a TOTAL. A number in front of
+            # "families" is usually not one: "two families have run against
+            # real hardware" is a count of what has been tested, and "if two
+            # plugins declare the same name" is a hypothetical. Trying to tell
+            # those apart by pattern is guessing at intent, and a guard that
+            # guesses produces exceptions until somebody switches it off. So
+            # this matches three unambiguous shapes and nothing else.
+            while ($line =~ /\b(two|three|four|five|six)\s+storage\s+types?\b/gi) {
+                my $n = $word{lc $1};
+                push @bad, "line $lineno: '$1 storage types' but there are $expected"
+                    if $n && $n != $expected;
+            }
+            while ($line =~ /\ball\s+(two|three|four|five|six)\s+
+                             (types?|plugins?|families)\b/gix) {
+                my $n = $word{lc $1};
+                push @bad, "line $lineno: 'all $1 $2' but there are $expected"
+                    if $n && $n != $expected;
+            }
+            while ($line =~ /\b(two|three|four|five|six)\s+types?\s+register/gi) {
+                my $n = $word{lc $1};
+                push @bad, "line $lineno: '$1 types registered' but there are $expected"
+                    if $n && $n != $expected;
+            }
+
+            # Chinese: the same three shapes. 個 followed by 都 or 皆 is the
+            # "all of them" construction; without it the number is usually
+            # counting something else.
+            while ($line =~ /([\x{5169}\x{4e09}\x{56db}\x{4e94}\x{516d}])\x{500b}\s*storage\s*type/gi) {
+                my $n = $word{$1};
+                push @bad, "line $lineno: '$1\x{500b} storage type' but there are $expected"
+                    if $n && $n != $expected;
+            }
+            while ($line =~ /([\x{5169}\x{4e09}\x{56db}\x{4e94}\x{516d}])\x{500b}\s*
+                             (?:type|plugin|\x{5916}\x{639b}|\x{7cfb}\x{5217})
+                             [^\x{3002}]{0,6}?[\x{90fd}\x{7686}]/gix) {
+                my $n = $word{$1};
+                push @bad, "line $lineno: '$1\x{500b} ... \x{90fd}' but there are $expected"
+                    if $n && $n != $expected;
+            }
+        }
+
+        is(scalar(@bad), 0, "$file counts the families correctly")
+            or diag("  " . join("\n  ", @bad));
+    }
+}
+
 done_testing();

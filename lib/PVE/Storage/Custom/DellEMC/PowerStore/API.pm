@@ -501,6 +501,83 @@ sub get_managed_capacity {
 }
 
 # ---------------------------------------------------------------------------
+# Volume groups
+#
+# A PowerStore volume belongs to AT MOST ONE volume group. Dell's own ansible
+# module reads volume_groups[0], compares a single id, and refuses to reassign
+# a group for an existing volume at all, pointing the caller at the Volume
+# Group module instead. So a group is not an additive label: putting a volume
+# in one takes it out of wherever it was.
+#
+# Everything here therefore separates "there is no such group" from "I could
+# not ask" (rule 21a). The delete path is the reason: a listing that failed
+# and a group that is empty look identical if the failure is swallowed, and
+# the plugin then deletes a group that may hold somebody's protection policy.
+# ---------------------------------------------------------------------------
+
+sub _volume_group_select {
+    return 'id,name,description,protection_policy_id,volumes(id,name,type)';
+}
+
+# The group, or undef when the array says there is none. Dies if it could not
+# be asked.
+sub volume_group_get_by_name {
+    my ($self, $name, %opts) = @_;
+
+    my $rows = $self->get('/volume_group',
+        { name => "eq.$name", select => $self->_volume_group_select }, %opts);
+
+    return (ref($rows) eq 'ARRAY' && @$rows) ? $rows->[0] : undef;
+}
+
+sub volume_group_get {
+    my ($self, $id, %opts) = @_;
+
+    return $self->get_or_undef("/volume_group/$id",
+        { select => $self->_volume_group_select }, %opts);
+}
+
+sub volume_group_create {
+    my ($self, $name, %opts) = @_;
+
+    my $body = { name => $name };
+
+    # Write-order consistency is what makes a group snapshot of a multi-disk
+    # VM usable: without it the members are snapshotted independently and a
+    # guest spanning two disks can be restored to a state it was never in.
+    $body->{is_write_order_consistent} = JSON::true;
+
+    $body->{description} = $opts{description} if defined $opts{description};
+
+    my $res = $self->post('/volume_group', $body, %opts);
+
+    return ref($res) eq 'HASH' ? $res->{id} : undef;
+}
+
+sub volume_group_delete {
+    my ($self, $id, %opts) = @_;
+    return $self->_request('DELETE', "/volume_group/$id", undef, %opts);
+}
+
+sub volume_group_add_members {
+    my ($self, $id, $volume_ids, %opts) = @_;
+
+    return unless ref($volume_ids) eq 'ARRAY' && @$volume_ids;
+
+    return $self->post("/volume_group/$id/add_members",
+        { volume_ids => $volume_ids }, %opts);
+}
+
+sub volume_group_remove_members {
+    my ($self, $id, $volume_ids, %opts) = @_;
+
+    return unless ref($volume_ids) eq 'ARRAY' && @$volume_ids;
+
+    return $self->post("/volume_group/$id/remove_members",
+        { volume_ids => $volume_ids }, %opts);
+}
+
+# ---------------------------------------------------------------------------
 # Volumes
 # ---------------------------------------------------------------------------
 

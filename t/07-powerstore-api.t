@@ -1101,4 +1101,114 @@ ok(length($long) > 63, 'and do use the room PowerStore allows');
         'the LUN id is still sent');
 }
 
+# ---------------------------------------------------------------------------
+# Volume groups: what actually goes on the wire
+#
+# The plugin-level tests drive the decision logic with a stubbed client, which
+# says nothing about whether these requests are the ones PowerStore answers.
+# Lesson 70 was a number that encoded as a string and was invisible to every
+# test that did not read the bytes, so these drive the real client through a
+# capturing transport and check the path, the method and the body.
+# ---------------------------------------------------------------------------
+
+{
+    my ($api, $ua) = make_api(handler => sub {
+        my ($req, $key) = @_;
+        return json_response(201, { id => 'vg-new' })
+            if $key eq 'POST /api/rest/volume_group';
+        return json_response(200, []);
+    });
+
+    my $id = $api->volume_group_create('pve-ps1-104-vg',
+        description => 'Proxmox VE VM 104 on storage ps1 [pve-dellemc-per-vm]');
+
+    is($id, 'vg-new', 'the new volume group id is returned');
+    is($ua->last_request->method, 'POST', 'a create is a POST');
+    like($ua->last_request->uri, qr{/api/rest/volume_group\z},
+        '... to the volume_group collection');
+
+    my $body = decode_json($ua->last_request->content);
+    is($body->{name}, 'pve-ps1-104-vg', 'the name is sent');
+    like($body->{description}, qr/\Q[pve-dellemc-per-vm]\E/,
+        'the ownership marker travels in the description, which is what'
+      . ' proves later that this plugin may delete the group');
+
+    # A JSON boolean, not the string "true" and not 1. A group whose members
+    # are snapshotted independently can restore a multi-disk guest to a state
+    # it was never in, so this is the flag that has to arrive as a boolean.
+    my $raw = $ua->last_request->content;
+    like($raw, qr/"is_write_order_consistent"\s*:\s*true/,
+        'write-order consistency is a JSON boolean');
+}
+
+{
+    my ($api, $ua) = make_api(handler => sub { json_response(200, []) });
+
+    $api->volume_group_get_by_name('pve-ps1-104-vg');
+
+    my $q = $ua->query_of;
+    is($q->{name}, 'eq.pve-ps1-104-vg',
+        'a group is looked up with the eq. filter, exactly as a volume is');
+    like($q->{select}, qr/\bvolumes\b/,
+        '... asking for the membership, which the empty check needs');
+    like($q->{select}, qr/\bprotection_policy_id\b/,
+        '... and for the policy, which is one of the three reasons not to'
+      . ' delete it');
+}
+
+{
+    my ($api, $ua) = make_api(handler => sub { json_response(200, {}) });
+
+    $api->volume_group_add_members('vg-1', ['v-1', 'v-2']);
+    is($ua->last_request->method, 'POST', 'adding members is a POST');
+    like($ua->last_request->uri, qr{/volume_group/vg-1/add_members\z},
+        '... to the group\x27s own add_members action');
+    is_deeply(decode_json($ua->last_request->content),
+        { volume_ids => ['v-1', 'v-2'] }, '... carrying the volume ids');
+
+    $api->volume_group_remove_members('vg-1', ['v-1']);
+    like($ua->last_request->uri, qr{/volume_group/vg-1/remove_members\z},
+        'removing members has its own action');
+    is_deeply(decode_json($ua->last_request->content),
+        { volume_ids => ['v-1'] }, '... and names only what is leaving');
+
+    $api->volume_group_delete('vg-1');
+    is($ua->last_request->method, 'DELETE', 'deleting a group is a DELETE');
+    like($ua->last_request->uri, qr{/volume_group/vg-1\z}, '... of the group');
+}
+
+# Absent and unreachable, at the transport level. This is the distinction the
+# whole delete path rests on: a group that is not there is a normal answer,
+# and a group that cannot be asked about must not be treated as one.
+{
+    my ($api) = make_api(handler => sub {
+        my ($req, $key) = @_;
+        return json_response(404, { messages => [{ code => '0xE0201002' }] });
+    });
+
+    my $group = eval { $api->volume_group_get('vg-gone') };
+    ok(!$@, 'a 404 on a volume group is not an error') or diag($@);
+    is($group, undef, '... it is the answer "there is no such group"');
+}
+
+{
+    my ($api) = make_api(handler => sub {
+        return json_response(500, { messages => [{ code => 'boom' }] });
+    });
+
+    ok(!eval { $api->volume_group_get('vg-1'); 1 },
+        'a 500 on a volume group DIES rather than answering "absent"');
+    like($@, qr/500/, '... naming the status, so the caller can tell them apart');
+}
+
+# The group reaches the array on the create, not in a second call afterwards.
+{
+    my ($api, $ua) = make_api(handler => sub { json_response(201, { id => 'x' }) });
+    $api->volume_create('pve-ps1-104-disk0', 32 * 1024 ** 3,
+        volume_group_id => 'vg-1');
+    is(decode_json($ua->last_request->content)->{volume_group_id}, 'vg-1',
+        'a new volume is placed in its group at creation, so it never exists'
+      . ' outside the group it was meant to be in');
+}
+
 done_testing();

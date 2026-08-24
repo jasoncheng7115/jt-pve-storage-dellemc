@@ -57,7 +57,8 @@ English: [CONFIGURATION.md](CONFIGURATION.md)
 | 選項 | 型別 | 必填 | 預設 | 說明 |
 |---|---|---|---|---|
 | `pstore-appliance` | string | 否 | — | 多 appliance 叢集中，新 volume 要放在哪一台。留空由 PowerStore 自行決定 |
-| `pstore-volume-group` | string | 否 | — | 把所有 volume 放進指定的 volume group，該群組必須已存在 |
+| `pstore-volume-group` | string | 否 | — | 把所有 volume 放進指定的 volume group，該群組必須已存在。不能與 `pstore-volume-group-per-vm` 併用 |
+| `pstore-volume-group-per-vm` | boolean | 否 | `0` | 讓每一台 VM 擁有自己的 volume group，由外掛建立與移除，如此便能以 VM 為單位套用保護原則與一致性群組快照。詳見下方 |
 | `pstore-performance-policy` | `High` \| `Medium` \| `Low` | 否 | `Medium` | 新 volume 的效能原則 |
 | `pstore-protection-policy` | string | 否 | — | 套用 protection policy（快照與複寫規則），必須已存在 |
 | `pstore-lun-id-base` | 1–200 | 否 | `1` | 外掛配發 LUN ID 的起始值 |

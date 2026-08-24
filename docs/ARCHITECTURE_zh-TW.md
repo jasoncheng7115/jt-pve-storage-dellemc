@@ -81,7 +81,7 @@ _array_get_portals      iSCSI portal，格式為 [{ portal, iqn }]
 
 PVE 會把所有已註冊外掛的 `properties()` 合併成同一份 schema，若兩個外掛宣告了相同名稱就會以 `duplicate property` **中止** —— 見 `PVE::SectionConfig::init`。這個失敗的影響範圍不限於出問題的外掛：它發生在 PVE 建立 storage schema 的過程中，因此該節點上的每一個儲存都會停止運作。
 
-因此共用的 `dell-*` 選項由「PVE 最先詢問到的那個系列類別」宣告，其他系列只宣告自己的。這個規則由 `Common::Schema` 負責，因此新增系列不需要更動這個機制。`t/09` 涵蓋規則本身，`t/15` 則會針對本機安裝的 PVE，一次檢查三個外掛之間有沒有重複。
+因此共用的 `dell-*` 選項由「PVE 最先詢問到的那個系列類別」宣告，其他系列只宣告自己的。這個規則由 `Common::Schema` 負責，因此新增系列不需要更動這個機制。`t/09` 涵蓋規則本身，`t/15` 則會針對本機安裝的 PVE，一次檢查四個外掛之間有沒有重複。
 
 ### 關於 PowerMax，在動工之前先記下
 

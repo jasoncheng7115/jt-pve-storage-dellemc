@@ -7,6 +7,82 @@ Versioning: the patch number increments per release and runs to .99 before
 the minor number moves — 0.7.0, 0.7.1, … 0.7.99, then 0.8.0. Every 0.x
 release is a prerelease; 1.0.0 is the on-hardware test pass.
 
+## [0.8.18~beta1] - 2026-08-24
+
+### Added
+- **A volume group per VM on PowerStore** (`pstore-volume-group-per-vm`, off by
+  default). Each VM's disks go into a group of their own, created and removed
+  by the plugin, so an operator can apply a protection policy or take a
+  consistent group snapshot per VM from PowerStore Manager without maintaining
+  the membership by hand.
+
+  Requested by **Alexander Gott ([@alexandergott-afk](https://github.com/alexandergott-afk))**
+  in [issue #3](https://github.com/jasoncheng7115/jt-pve-storage-dellemc/issues/3),
+  who also settled the one design question left open: the group must always
+  match the VMID Proxmox shows, or the VMs get mixed up. Thank you.
+
+  One fact shapes the whole feature: **a PowerStore volume belongs to at most
+  one volume group.** Dell's own ansible module reads `volume_groups[0]` and
+  refuses to reassign an existing volume's group. So this is not an additive
+  label, it claims a slot an operator may already be using — hence off by
+  default, and mutually exclusive with `pstore-volume-group`, refused at
+  `pvesm add` and at `pvesm set` rather than discovered later by whichever of
+  the two lost.
+
+  Four rules hold the rest of it up:
+
+  - **It can never fail a disk creation.** A group that cannot be created or
+    found leaves the volume ungrouped and warns once. A cosmetic grouping must
+    not be able to stop a VM getting a disk, and this also makes the unknown
+    ceiling on volume groups per cluster harmless.
+  - **Only VM disks join.** The config backup volume is created and deleted on
+    every single snapshot, and the temporary clones used to read a snapshot
+    live for the length of a backup; either would churn the membership and
+    make "is this group empty" a moving target.
+  - **Membership follows the VMID, and leaves the old group first.** The only
+    PVE operation that renames a volume across VMIDs is reassigning a disk to
+    another VM; restore and clone allocate new volumes and land correctly by
+    themselves. If the second half fails the volume is in no group rather than
+    in the previous one: no group loses an enhancement, the wrong group tells
+    an operator the disk belongs to a VM it does not and would carry that VM's
+    protection policy.
+  - **Cleanup runs even after the option is switched off**, exactly as it
+    already does for config backup volumes.
+
+  An empty group is removed only when all three hold: this plugin created it,
+  proven by a marker it wrote into the description rather than inferred from
+  the name; the array **answered**, and answered empty; and no protection
+  policy is attached, because turning grouping on is not permission to delete
+  somebody's policy.
+
+### Fixed
+- **Every release page carried install instructions that contradicted the
+  project.** They said 0.x releases are marked Pre-release and that
+  `/releases/latest` would not resolve, so they offered a `curl | grep` over
+  the API instead. Neither claim is true: the releases are deliberately not
+  marked Pre-release, and the workflow publishes a second copy under a
+  fixed name precisely so that `/releases/latest/download/…` works forever.
+  The README and the site have always given that URL; only the release page
+  did not.
+
+### Changed
+- **The site and both READMEs said one array had run this. Two have.** The
+  opening declaration now names the PowerStore alongside the ME4024 and says
+  what each has established. Six rows of `docs/TESTING.md` move off NOT
+  VERIFIED as a result: authentication, the SCSI vendor and product strings,
+  the WWN to WWID conversion and the WWPN spelling are confirmed, while the
+  REST paths, the filter syntax and the response field names become partly
+  confirmed. Nothing was promoted further than the evidence reaches, which is
+  why the `ilike.` wildcard and the capacity fields stay unverified.
+- **Twelve places said there are three storage types.** There are four; Unity
+  arrived and the counts did not follow, including the roadmap, the first-run
+  guide, the release plan and the Depends list. `t/16-docs.t` now takes the
+  number from the plugin classes and fails a document that disagrees, narrowed
+  to the constructions that state a total so that "two families have run
+  against real hardware" stays writable.
+- SAS is documented as **not implemented** rather than merely unverified, in
+  the release notes as well, which the earlier sweep missed.
+
 ## [0.8.17~beta1] - 2026-08-21
 
 ### Fixed

@@ -117,7 +117,7 @@ the node stops working.
 The shared `dell-*` options are therefore declared by whichever family class
 PVE asks first, and the others declare only their own. `Common::Schema` owns
 that rule, so adding a family requires no change to the mechanism. `t/09`
-covers the rule itself and `t/15` asserts it across all three plugins at
+covers the rule itself and `t/15` asserts it across all four plugins at
 once, against the PVE installed on the machine.
 
 ### A note on PowerMax, before it is built

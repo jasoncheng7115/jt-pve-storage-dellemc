@@ -43,7 +43,7 @@ make deb
 dpkg-deb -c ../jt-pve-storage-dellemc_*_all.deb | grep -E 'perl5|bin/'
 ```
 
-Expected: the three plugin modules, the `DellEMC/` tree, and
+Expected: the four plugin modules, the `DellEMC/` tree, and
 `/usr/bin/pve-dell-config-get` at mode 0755.
 
 ```bash
@@ -51,7 +51,7 @@ dpkg-deb -I ../jt-pve-storage-dellemc_*_all.deb | grep -E 'Version|Depends'
 ```
 
 Expected: the version matches `debian/changelog`, and Depends lists
-`proxmox-ve`, the three Perl modules, `open-iscsi`, `multipath-tools`,
+`proxmox-ve`, the four Perl modules, `open-iscsi`, `multipath-tools`,
 `sg3-utils`, `psmisc`.
 
 ---
@@ -80,7 +80,7 @@ Expected: no storage changed state. A `duplicate property` failure at this
 point takes down **every** storage on the node, so this diff is the single
 most important check in the whole plan.
 
-### 3.2 All three types register
+### 3.2 All four types register
 
 ```bash
 perl -e 'use PVE::Storage;

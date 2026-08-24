@@ -43,6 +43,7 @@ use warnings;
 sub max_volume_name_length   { 63 }
 sub max_snapshot_name_length { 63 }
 sub max_host_name_length     { 63 }
+sub max_volume_group_name_length { 63 }
 
 # How much of the storeid may appear inside an object name. Keeping this
 # short leaves room for the vmid and the object kind within the volume name
@@ -156,6 +157,28 @@ sub encode_volume_name {
     die "diskid is required\n"  unless defined $diskid;
 
     return $class->volume_prefix($storeid) . "${vmid}-disk${diskid}";
+}
+
+# The per-VM volume group, when 'pstore-volume-group-per-vm' is on.
+#
+# Built from volume_prefix, exactly as the volume names are, rather than from
+# a scheme of its own. That is not tidiness: the prefix is what on_add_hook
+# refuses to let two storages share (lesson 43), so a group named this way
+# collides only where the volumes already would, and a second storage cannot
+# quietly start managing the first one's groups.
+sub encode_volume_group_name {
+    my ($class, $storeid, $vmid) = @_;
+
+    die "storeid is required\n" unless defined $storeid;
+    die "vmid is required\n"    unless defined $vmid;
+
+    my $name = $class->volume_prefix($storeid) . "${vmid}-vg";
+
+    die "The volume group name '$name' does not fit this array's limit of "
+      . $class->max_volume_group_name_length . " characters\n"
+        if length($name) > $class->max_volume_group_name_length;
+
+    return $name;
 }
 
 sub encode_cloudinit_name {

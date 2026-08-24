@@ -35,7 +35,7 @@ diff /tmp/before.txt /tmp/after.txt
 systemctl show -p MainPID pvestatd
 ```
 
-### 2. 確認三個 type 都註冊了
+### 2. 確認四個 type 都註冊了
 
 ```bash
 perl -e 'use PVE::Storage;

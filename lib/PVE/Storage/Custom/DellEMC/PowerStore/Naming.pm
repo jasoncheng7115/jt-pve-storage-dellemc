@@ -27,6 +27,12 @@ sub max_volume_name_length   { 128 }
 sub max_snapshot_name_length { 128 }
 sub max_host_name_length     { 128 }
 
+# NOT VERIFIED against hardware. PowerStore's documented limit for a volume
+# group name is not something Dell's own client enforces, so this follows the
+# volume limit; encode_volume_group_name refuses a longer one here rather than
+# letting the array refuse it halfway through a disk creation.
+sub max_volume_group_name_length { 128 }
+
 # The storeid's share of a volume name. Wider than the default because the
 # names are longer here, but still bounded: the vmid, the object kind and a
 # snapshot name all have to fit alongside it.

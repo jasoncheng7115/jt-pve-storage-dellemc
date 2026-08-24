@@ -54,29 +54,38 @@ ME4024 跑過更多；ME 那台建立了什麼、又沒有建立什麼，見上�
 |---|---|
 | host 物件會被接管，而它的 FC 連接埠名稱必須是**冒號分隔**的形式 | 儲存伺服器直接拒絕了連在一起的寫法（教訓 69） |
 | `logical_unit_number` 必須是 JSON **整數**，不能是字串 | 儲存伺服器的結構描述驗證直接點名了這個欄位（教訓 70） |
-| 磁碟區的建立與掛載，以及一般 VM 磁碟的資料路徑 | issue #1 回報一般磁碟遷移成功 |
+| 磁碟區的建立與掛載，以及一般 VM 磁碟的資料路徑 | issue #1 回報一般磁碟成功遷移進這個儲存 |
 | **最小磁碟區大小是 1048576 位元組**，這與 8 KiB 對齊單位是兩回事 | 儲存伺服器拒絕了一顆 540672 位元組的 EFI 磁碟，並回報了這個下限（issue #1、教訓 80） |
+| 認證流程，以及 volume、snapshot、mapping 的 REST 路徑 | 它們都有回應；否則 issue #1 與 #2 裡的事情一件都不可能發生 |
+| 依名稱查詢磁碟區，因此至少 `eq.` 這個比較運算子可用 | issue #2 的日誌顯示查詢 `pve-ps1-104-disk1` 只花 0.00 秒 |
+| **WWN 轉 multipath WWID 的換算，以及 SCSI vendor／product 字串** | issue #2 的設定備份是靠 WWID 找到裝置的，而且 dm-multipath 確實接管了它，這兩件事都必須正確才可能發生 |
+| **快照建立** | issue #2 量到 0.00 秒，而且是對執行中的客體做的 |
+| **有客體實際跑在儲存伺服器的磁碟區上** | issue #2 對一台執行中、guest agent 有回應的虛擬機建立快照 |
+| 1 MB 設定磁碟區的完整生命週期：建立、對應、重新掃描、裝置出現、mkfs、掛接、寫入、解除對應 | issue #2，整段被量到八秒 |
 
-快照、倒回，以及本外掛的遷移路徑，在那台上都還沒有跑過。
+**在 PowerStore 上仍未跑過的**：快照刪除、倒回、磁碟區刪除、擴充、節點之間的線上遷移，
+以及透過 `POST /metrics/generate` 的容量回報。**而且不知道走的是哪一種協定** —— 兩個
+issue 都沒有說那台是 iSCSI 還是 FC，而這兩者運用的是主機端的不同半邊。這值得問清楚，
+因為不論答案是哪一個，下面那張表都會有一列可以定案。
 
 以下項目在實機執行、並把結果連同當時的 PowerStore OS 版本記錄到本文件之前，一律為 `NOT VERIFIED ON HARDWARE`。
 
 | 項目 | 位置 | 狀態 |
 |---|---|---|
-| REST 端點路徑 | `PowerStore/API.pm` | NOT VERIFIED ON HARDWARE —— 但本外掛用到的每一個路徑，都能在 Dell 自己的 `python-powerstore` SDK（`PyPowerStore/utils/constants.py`）裡逐字找到；詳見下方 |
-| 回應欄位名稱（`size`、`wwn`、`logical_used`、`protection_data`） | `PowerStore/API.pm` | NOT VERIFIED ON HARDWARE |
-| 過濾語法（`eq.`、`ilike.`、`cs.{...}`、`->>`） | `PowerStore/API.pm` | NOT VERIFIED ON HARDWARE —— 比較運算子前置字串與 `*` 萬用字元是從開發者指南讀來的 |
-| 認證流程（`login_session`、`DELL-EMC-TOKEN`、`auth_cookie`） | `PowerStore/API.pm` | NOT VERIFIED ON HARDWARE —— 標頭、cookie 與「非 GET 一律需要 token」是從開發者指南讀來的 |
+| REST 端點路徑 | `PowerStore/API.pm` | **部分驗證** —— 登入、volume、snapshot、host 與 mapping 在客戶的儲存伺服器上都有回應（issue #1 與 #2）。`metrics/generate`、複製與還原仍然只有 Dell 自己的 `python-powerstore` SDK（`PyPowerStore/utils/constants.py`）這一個來源；詳見下方 |
+| 回應欄位名稱（`size`、`wwn`、`logical_used`、`protection_data`） | `PowerStore/API.pm` | **部分驗證** —— `wwn` 是對的，因為裝置正是靠它推導出的 WWID 找到的；`size` 在建立時被接受。`logical_used` 與 `protection_data` 在實機上仍未讀過，所以容量與連結複製的回報尚未驗證 |
+| 過濾語法（`eq.`、`ilike.`、`cs.{...}`、`->>`） | `PowerStore/API.pm` | **部分驗證** —— `eq.` 在客戶的儲存伺服器上可以依名稱查到磁碟區（issue #2）。`ilike.` 與它的 `*` 萬用字元、`cs.` 與 `->>` 仍然只有開發者指南這一個來源，而教訓 25 正是那種來源出錯時會發生的事 |
+| 認證流程（`login_session`、`DELL-EMC-TOKEN`、`auth_cookie`） | `PowerStore/API.pm` | **已驗證** —— 客戶的儲存伺服器完成認證，並且接受非 GET 請求（issue #1 與 #2）|
 | 容量來源（`space_metrics_by_cluster`） | `PowerStore/API.pm` | NOT VERIFIED ON HARDWARE |
-| multipath 比對用的 SCSI vendor／product 字串 | `DellPowerStorePlugin.pm` | NOT VERIFIED ON HARDWARE |
-| WWN 轉 multipath WWID | `PowerStore/API.pm` | NOT VERIFIED ON HARDWARE |
+| multipath 比對用的 SCSI vendor／product 字串 | `DellPowerStorePlugin.pm` | **已驗證** —— dm-multipath 在客戶的儲存伺服器上確實接管了那個裝置（issue #2）|
+| WWN 轉 multipath WWID | `PowerStore/API.pm` | **已驗證** —— 裝置就是靠這個換算產生的 WWID 找到的（issue #2）|
 | Volume 名稱長度與字元限制 | `PowerStore/Naming.pm` | NOT VERIFIED ON HARDWARE |
 | LUN ID 配發行為 | `PowerStore/API.pm` | NOT VERIFIED ON HARDWARE |
 | 磁碟區大小限制（8 KiB 對齊單位、**1 MiB 最小值**） | `PowerStore/API.pm` | **已驗證** —— 最小值來自儲存伺服器自己拒絕一顆 540672 位元組 EFI 磁碟時的回應（issue #1）。對齊單位目前仍只有開發者指南這一個來源 |
 | multipath device 參數 | `DellPowerStorePlugin.pm` | NOT VERIFIED ON HARDWARE |
 | Fibre Channel 資料路徑 | 全部 | NOT VERIFIED ON HARDWARE |
 | 還原之後，比還原點更新的快照會怎麼樣 | `DellPowerStorePlugin.pm`、`DellPowerVaultPlugin.pm`、`DellPowerFlexPlugin.pm` | NOT VERIFIED ON HARDWARE |
-| host 物件中 WWPN 的寫法（純十六進位或冒號分隔） | `DellPowerStorePlugin.pm`、`DellPowerVaultPlugin.pm` | NOT VERIFIED ON HARDWARE |
+| host 物件中 WWPN 的寫法（純十六進位或冒號分隔） | `DellPowerStorePlugin.pm`、`DellPowerVaultPlugin.pm` | **兩者皆已驗證** —— PowerStore 拒絕了連在一起的寫法、接受冒號分隔（教訓 69），之後在一台走 FC 的 500T 上 host 接管一直正常；ME4024 則接受純十六進位並且成功對應。Unity 的 `<wwnn>:<wwpn>` 配對仍未驗證 |
 | 用來辨識連結複製來源的欄位（`protection_data.source_id`、`ancestorVolumeId`） | `DellPowerStorePlugin.pm`、`DellPowerFlexPlugin.pm` | NOT VERIFIED ON HARDWARE |
 | NVMe-TCP | — | 不在 1.0 範圍 |
 
@@ -336,6 +345,7 @@ host、加入 initiator、metrics/generate）：每一個線上鍵都與 Dell �
 | `wwn` | 主機將看到的 WWID | 範例中是 `naa.68ccf09800ac8ab0e2506d99bee29e40` —— 正是本外掛會轉換的 `naa.` 形式。但仍**未與主機自己的 `scsi_id` 比對過**，那才是該確認的事 |
 | `state`、`type` | 是否可用、Primary 或 Snapshot | 範例中是 `Ready` 與 `Primary`，正是本外掛送出的過濾值 |
 | `protection_data.source_id` | 精簡複製是從哪個快照來的 | 範例的 `protection_data` 帶有 `source_id`、`parent_id`、`family_id` |
+| `volumes`、`protection_policy_id`、`is_write_order_consistent` | volume group，供 `pstore-volume-group-per-vm` 使用 | 這些名稱取自 Dell 自己的 `volumegroup` ansible 模組。**成員的快照會不會出現在 `volumes` 裡尚未驗證**，因此「群組是否為空」的判斷只計算 `type` 為 `Primary` 的成員，兩種答案都安全 |
 | `creation_timestamp` | 快照時間 | 範例是 `2022-01-06T05:41:59.381459+00:00` —— 小數秒與明確的時區位移，兩者都已處理 |
 | `appliance_id` | volume 位於哪一台 appliance | 範例中有 |
 | `physical_total`、`physical_used`、`total_physical`、`total_used` | 容量，取自指標記錄 | **未驗證** |

@@ -1,3 +1,32 @@
+jt-pve-storage-dellemc (0.8.18~beta1-1) unstable; urgency=medium
+
+  * BETA RELEASE. Not for production use.
+  * Added: 'pstore-volume-group-per-vm', off by default, which gives each VM a
+    PowerStore volume group of its own so that protection policies and
+    consistent group snapshots can be applied per VM from PowerStore Manager.
+    Requested by Alexander Gott (@alexandergott-afk) in issue #3, who also
+    settled the design question about what happens when a disk is reassigned
+    to another VM. A volume belongs to at most one volume group, so this is
+    mutually exclusive with 'pstore-volume-group' and refused at pvesm add or
+    pvesm set rather than discovered later. It never fails a disk creation, it
+    only takes in VM disks (not the config backup volume or the temporary
+    snapshot clones), membership follows the VMID and leaves the old group
+    first, and cleanup runs even after the option is switched off. An empty
+    group is deleted only when this plugin created it, the array answered and
+    answered empty, and no protection policy is attached.
+  * Documentation: the site and both READMEs said one array had run this. Two
+    have. A PowerStore has run volume create, mapping, device discovery,
+    snapshot creation and guests running off it, which also moves six rows of
+    docs/TESTING.md from NOT VERIFIED to verified or partly verified.
+  * Documentation: twelve places said there are three storage types. There are
+    four. t/16-docs.t now takes the number from the plugin classes.
+  * Fixed: every release page said that 0.x releases are marked Pre-release
+    and that /releases/latest would not resolve. Neither is true, and the
+    workflow publishes a fixed-name asset precisely so that URL works. The
+    release notes now give it, as the README always has.
+
+ -- Jason Cheng <jason@jason.tools>  Mon, 24 Aug 2026 17:30:00 +0800
+
 jt-pve-storage-dellemc (0.8.17~beta1-1) unstable; urgency=high
 
   * BETA RELEASE. Not for production use.

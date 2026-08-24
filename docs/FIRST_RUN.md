@@ -47,7 +47,7 @@ memory on many PVE versions; verify the PID changed:
 systemctl show -p MainPID pvestatd
 ```
 
-### 2. Check the three types registered
+### 2. Check the four types registered
 
 ```bash
 perl -e 'use PVE::Storage;

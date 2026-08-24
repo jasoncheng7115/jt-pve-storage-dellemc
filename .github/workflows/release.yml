@@ -172,15 +172,19 @@ jobs:
           body: |
             ## ⚠️ Beta software — read before installing
 
-            **One array has run this plugin**, and only one: a PowerVault
-            ME4024 (firmware `GT280R011-01`) over Fibre Channel. It passes
-            the whole of the first-run test, and as of 0.7.66 the lifecycle
-            items beyond it — a guest OS booting off an array volume,
-            growing a disk, `vzdump --mode snapshot` with a restore, an LXC
-            container, and a node reboot. Everything else remains unverified
-            against hardware — **PowerStore, PowerFlex and Unity entirely**,
-            and on PowerVault the iSCSI and SAS paths, live migration and a
-            path failure, since that array ran FC and one node.
+            **Two arrays have run this plugin.** A PowerVault ME4024
+            (firmware `GT280R011-01`) over Fibre Channel passes the whole of
+            the first-run test, and as of 0.7.66 the lifecycle items beyond
+            it — a guest OS booting off an array volume, growing a disk,
+            `vzdump --mode snapshot` with a restore, an LXC container, and a
+            node reboot. A PowerStore creates, maps and snapshots volumes and
+            runs guests off them, though snapshot deletion, rollback and
+            migration between nodes have not been exercised there.
+
+            **PowerFlex and Unity have never been connected to anything.** On
+            PowerVault the iSCSI path, live migration and a path failure are
+            unrun, since that array is on FC and one node. SAS is not
+            implemented at all.
 
             Read [what has and has not been verified](https://github.com/jasoncheng7115/jt-pve-storage-dellemc/blob/main/docs/TESTING.md)
             before trusting any of it: that page names each item and says
@@ -196,18 +200,19 @@ jobs:
 
             ## Install
 
-            > Every 0.x release is marked **Pre-release**, so GitHub shows no
-            > "Latest" badge on any of them and `/releases/latest` will not
-            > resolve. That is deliberate — 1.0.0 is the on-hardware test
-            > pass. **Take the release at the top of the list**, which is the
-            > newest, or let the command below find it.
+            > Every 0.x release is a prerelease in the sense that matters:
+            > 1.0.0 is the on-hardware test pass. They are not *marked*
+            > Pre-release on GitHub, because GitHub will not call a
+            > prerelease "Latest" and the badge then sticks to whichever old
+            > release happened to be unmarked — a stale version presented as
+            > the newest is a worse signal than a missing badge.
 
             ```bash
-            # newest release, prereleases included
-            url=$(curl -s https://api.github.com/repos/jasoncheng7115/jt-pve-storage-dellemc/releases \
-                  | grep -om1 'https://[^"]*_all\.deb')
-            curl -LO "$url"
+            curl -LO https://github.com/jasoncheng7115/jt-pve-storage-dellemc/releases/latest/download/jt-pve-storage-dellemc_all.deb
             ```
+
+            That file name never changes and always points at the newest
+            release, which is what the second copy in every release is for.
 
             On **every** node of the cluster:
 

@@ -65,7 +65,8 @@ To see an ME's two addresses on the array itself: `show network-parameters`.
 | Option | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `pstore-appliance` | string | no | — | Appliance for new volumes in a multi-appliance cluster. Unset lets PowerStore choose |
-| `pstore-volume-group` | string | no | — | Put every volume in this volume group. Must already exist |
+| `pstore-volume-group` | string | no | — | Put every volume in this volume group. Must already exist. Cannot be combined with `pstore-volume-group-per-vm` |
+| `pstore-volume-group-per-vm` | boolean | no | `0` | Give each VM a volume group of its own, created and removed by the plugin, so protection policies and consistent group snapshots can be applied per VM. See below |
 | `pstore-performance-policy` | `High` \| `Medium` \| `Low` | no | `Medium` | Performance policy for new volumes |
 | `pstore-protection-policy` | string | no | — | Protection policy (snapshot and replication rules). Must already exist |
 | `pstore-lun-id-base` | 1–200 | no | `1` | Lowest LUN id the plugin assigns |

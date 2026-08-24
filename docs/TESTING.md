@@ -58,10 +58,21 @@ established and what it did not. What the PowerStore has established so far:
 |---|---|
 | A host object is adopted and its FC port names must be **colon-separated** | the array refused the run-together form outright (lesson 69) |
 | `logical_unit_number` must be a JSON **integer**, not a string | the array's schema validation named the field (lesson 70) |
-| Volume create and attach, and the data path for ordinary VM disks | issue #1 reports ordinary disks migrating successfully |
+| Volume create and attach, and the data path for ordinary VM disks | issue #1 reports ordinary disks migrating successfully onto the storage |
 | **The minimum volume size is 1048576 bytes**, separately from the 8 KiB granularity | the array refused a 540672-byte EFI disk and quoted the limit (issue #1, lesson 80) |
+| Authentication, and the REST paths for volume, snapshot and mapping | they answer; nothing in issues #1 or #2 could have happened otherwise |
+| Looking a volume up by name, so the `eq.` filter operator at least | issue #2's log times the lookup of `pve-ps1-104-disk1` at 0.00s |
+| **WWN to multipath WWID conversion, and the SCSI vendor / product strings** | issue #2's config backup found its device by WWID and dm-multipath claimed it, which both of those have to be right for |
+| **Snapshot creation** | issue #2 times it at 0.00s, on a running guest |
+| **A guest running off array volumes** | issue #2 snapshots a running VM with the guest agent responding |
+| The 1 MB config volume's whole lifecycle: create, map, rescan, device, mkfs, mount, write, unmap | issue #2, which measured all of it at 8 seconds |
 
-Snapshots, rollback and this plugin's migration paths remain unrun there.
+**Still unrun on a PowerStore**: snapshot deletion, rollback, volume deletion,
+resize, live migration between nodes, and capacity reporting through
+`POST /metrics/generate`. **And the protocol is not known** — neither issue
+says whether that array is on iSCSI or FC, and the two exercise different
+halves of the host side. It is worth asking, because either answer settles a
+row in the table below.
 
 Everything below is `NOT VERIFIED ON HARDWARE` until it has been executed on a
 real array and the result recorded here together with the PowerStore OS
@@ -69,20 +80,20 @@ version it was observed on.
 
 | Item | Where | Status |
 |---|---|---|
-| REST endpoint paths | `PowerStore/API.pm` | NOT VERIFIED ON HARDWARE — but every path this plugin uses appears verbatim in Dell's own `python-powerstore` SDK (`PyPowerStore/utils/constants.py`); see below |
-| Response field names (`size`, `wwn`, `logical_used`, `protection_data`) | `PowerStore/API.pm` | NOT VERIFIED ON HARDWARE |
-| Filter syntax (`eq.`, `ilike.`, `cs.{...}`, `->>`) | `PowerStore/API.pm` | NOT VERIFIED ON HARDWARE — the operator prefixes and the `*` wildcard are read from the developers guide |
-| Authentication (`login_session`, `DELL-EMC-TOKEN`, `auth_cookie`) | `PowerStore/API.pm` | NOT VERIFIED ON HARDWARE — the header, the cookie and "non-GET requires the token" are read from the developers guide |
+| REST endpoint paths | `PowerStore/API.pm` | PARTLY — login, volume, snapshot, host and mapping all answer on a customer's array (issues #1 and #2). `metrics/generate`, clone and restore are still only from Dell's own `python-powerstore` SDK (`PyPowerStore/utils/constants.py`); see below |
+| Response field names (`size`, `wwn`, `logical_used`, `protection_data`) | `PowerStore/API.pm` | PARTLY — `wwn` is right, because the device was found by the WWID derived from it, and `size` is accepted on create. `logical_used` and `protection_data` are still unread on hardware, so capacity and linked-clone reporting are unverified |
+| Filter syntax (`eq.`, `ilike.`, `cs.{...}`, `->>`) | `PowerStore/API.pm` | PARTLY — `eq.` answers a lookup by name on a customer's array (issue #2). `ilike.` with its `*` wildcard, `cs.` and `->>` are still only read from the developers guide, and lesson 25 is what happens when that is wrong |
+| Authentication (`login_session`, `DELL-EMC-TOKEN`, `auth_cookie`) | `PowerStore/API.pm` | **VERIFIED** — a customer's array authenticates and accepts non-GET requests (issues #1 and #2) |
 | Capacity source (`space_metrics_by_cluster`) | `PowerStore/API.pm` | NOT VERIFIED ON HARDWARE |
-| SCSI vendor / product strings for multipath | `DellPowerStorePlugin.pm` | NOT VERIFIED ON HARDWARE |
-| WWN to multipath WWID conversion | `PowerStore/API.pm` | NOT VERIFIED ON HARDWARE |
+| SCSI vendor / product strings for multipath | `DellPowerStorePlugin.pm` | **VERIFIED** — dm-multipath claimed the device on a customer's array (issue #2) |
+| WWN to multipath WWID conversion | `PowerStore/API.pm` | **VERIFIED** — the device was found by the WWID this conversion produced (issue #2) |
 | Volume name length and character limits | `PowerStore/Naming.pm` | NOT VERIFIED ON HARDWARE |
 | LUN id assignment behaviour | `PowerStore/API.pm` | NOT VERIFIED ON HARDWARE |
 | Volume size constraints (8 KiB granularity, **1 MiB minimum**) | `PowerStore/API.pm` | **VERIFIED** — the minimum by the array's own refusal of a 540672-byte EFI disk (issue #1). The granularity is still only from the developers guide |
-| Multipath device settings | `DellPowerStorePlugin.pm` | NOT VERIFIED ON HARDWARE |
+| Multipath device settings | `DellPowerStorePlugin.pm` | PARTLY — a map forms and carries data; the failover settings themselves are still unexercised |
 | Fibre Channel data path | everywhere | NOT VERIFIED ON HARDWARE |
 | What a restore does to snapshots taken after the restore point | `DellPowerStorePlugin.pm`, `DellPowerVaultPlugin.pm`, `DellPowerFlexPlugin.pm` | NOT VERIFIED ON HARDWARE |
-| WWPN spelling in a host object (bare hex vs colon-separated) | `DellPowerStorePlugin.pm`, `DellPowerVaultPlugin.pm` | NOT VERIFIED ON HARDWARE |
+| WWPN spelling in a host object (bare hex vs colon-separated) | `DellPowerStorePlugin.pm`, `DellPowerVaultPlugin.pm` | **VERIFIED for both** — PowerStore refused the run-together form and takes colons (lesson 69), and host adoption has worked on a 500T over FC since; an ME4024 accepted the bare hex and mapped through it. Unity's `<wwnn>:<wwpn>` pairing remains unverified |
 | Thin-clone parent field used to report linked clones (`protection_data.source_id`, `ancestorVolumeId`) | `DellPowerStorePlugin.pm`, `DellPowerFlexPlugin.pm` | NOT VERIFIED ON HARDWARE |
 | NVMe-TCP | — | out of scope for 1.0 |
 
@@ -391,6 +402,7 @@ which is noted per row; the rest are still inferred.
 | `appliance_id` | which appliance a volume is on | in the sample |
 | `physical_total`, `physical_used`, `total_physical`, `total_used` | capacity, from a metrics record | **not verified** |
 | `host_id`, `host_group_id`, `logical_unit_number`, `volume_id` | mapping rows | the same names the attach/detach request bodies use, which Dell's SDK confirms |
+| `volumes`, `protection_policy_id`, `is_write_order_consistent` | volume groups, for `pstore-volume-group-per-vm` | the names Dell's own `volumegroup` ansible module uses. **Whether a member's snapshots appear in `volumes` is NOT VERIFIED**, so the empty-group check counts only members reporting `type` `Primary`, which is safe either way |
 | `address`, `target_iqn` | iSCSI portals | **not verified** |
 | `purposes` | which addresses publish an iSCSI target — a list, but a bare string is accepted too | **not verified** |
 | `messages[].message_l10n`, `messages[].code` | the array's own error text | **not verified** |

@@ -6,16 +6,25 @@ Dell EMC storage plugins for Proxmox VE.
 
 > ## ⚠️ BETA SOFTWARE — READ BEFORE INSTALLING
 >
-> **This is a beta release (0.8.17~beta1). One array has run it**, and only
-> one: a PowerVault ME4024 on firmware `GT280R011-01` over Fibre Channel,
-> which as of 0.7.65 passes the whole of the first-run test and, at
-> 0.7.66, the lifecycle items beyond it — a guest OS booting off an array
-> volume, growing a disk, `vzdump --mode snapshot` with restore, an LXC
-> container, and a node reboot. **Everything
-> else is still unverified against hardware** — PowerStore and PowerFlex
-> entirely, and on PowerVault the iSCSI path, since that array ran
-> FC. [docs/TESTING.md](docs/TESTING.md) names each item and says which it
-> is; read it before trusting any of this.
+> **This is a beta release (0.8.18~beta1). Two families have run against
+> real hardware**, and two have not.
+>
+> A **PowerVault ME4024** on firmware `GT280R011-01` over Fibre Channel
+> passes the whole of the first-run test as of 0.7.65 and, at 0.7.66, the
+> lifecycle items beyond it: a guest OS booting off an array volume, growing
+> a disk, `vzdump --mode snapshot` with restore, an LXC container, and a node
+> reboot.
+>
+> A **PowerStore** has run host adoption, volume create, mapping, device
+> discovery through multipath, guests running off its volumes, snapshot
+> creation, and a storage migration onto it. Snapshot deletion, rollback and
+> migration between nodes have not been exercised there, and every defect it
+> found is listed in the changelog.
+>
+> **PowerFlex and Unity XT have never been connected to anything**, and on
+> PowerVault the iSCSI path has not been run, since that array is on FC.
+> [docs/TESTING.md](docs/TESTING.md) names each item and says which it is;
+> read it before trusting any of this.
 >
 > **Do not install this on a production cluster or point it at an array
 > holding data you care about.** A storage plugin runs as root, creates and
@@ -41,10 +50,10 @@ the unit an operator actually thinks about.
 
 ## Project status
 
-> **Version 0.8.17~beta1 — three storage types are code complete. One of
-> them has passed a full run on real hardware: PowerVault ME, over Fibre
-> Channel, on an ME4024.**
-> PowerStore and PowerFlex have never been run against an array at all, and
+> **Version 0.8.18~beta1 — four storage types are code complete. One has
+> passed a full run on real hardware, PowerVault ME over Fibre Channel on an
+> ME4024, and a PowerStore has run part of one.**
+> PowerFlex and Unity XT have never been run against an array at all, and
 > neither has PowerVault's iSCSI path — for those, every
 > array-facing detail (REST paths and field names, the SCSI vendor and
 > product strings, the WWN to WWID conversion) is still unverified. So this

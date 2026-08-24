@@ -38,13 +38,13 @@ make deb
 dpkg-deb -c ../jt-pve-storage-dellemc_*_all.deb | grep -E 'perl5|bin/'
 ```
 
-預期：三個 plugin 模組、`DellEMC/` 目錄樹，以及權限為 0755 的 `/usr/bin/pve-dell-config-get`。
+預期：四個 plugin 模組、`DellEMC/` 目錄樹，以及權限為 0755 的 `/usr/bin/pve-dell-config-get`。
 
 ```bash
 dpkg-deb -I ../jt-pve-storage-dellemc_*_all.deb | grep -E 'Version|Depends'
 ```
 
-預期：版本與 `debian/changelog` 相符，且 Depends 包含 `proxmox-ve`、三個 Perl 模組、`open-iscsi`、`multipath-tools`、`sg3-utils`、`psmisc`。
+預期：版本與 `debian/changelog` 相符，且 Depends 包含 `proxmox-ve`、四個 Perl 模組、`open-iscsi`、`multipath-tools`、`sg3-utils`、`psmisc`。
 
 ---
 
@@ -68,7 +68,7 @@ diff /tmp/before.txt /tmp/after.txt
 
 預期：沒有任何儲存改變狀態。若在此處發生 `duplicate property` 失敗，該節點上的**每一個**儲存都會停止運作，因此這個 diff 是整份計畫中最重要的一項檢查。
 
-### 3.2 三個 type 都已註冊
+### 3.2 四個 type 都已註冊
 
 ```bash
 perl -e 'use PVE::Storage;
