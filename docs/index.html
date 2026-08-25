@@ -171,7 +171,7 @@
     <div class="hero__glow"></div>
     <div class="hero__glow-left"></div>
     <div class="hero__content">
-        <div class="hero__badge">v0.8.23~beta1 <span class="hero__badge-sep"></span> MIT License</div>
+        <div class="hero__badge">v0.8.24~beta1 <span class="hero__badge-sep"></span> MIT License</div>
         <h1 class="hero__title">jt-pve-storage-dellemc</h1>
         <p class="hero__project-desc">
             <span class="lang-en">Dell EMC Storage Plugins for Proxmox VE</span>
@@ -1138,8 +1138,8 @@ DellPowerFlexPlugin                  <span class="comment"># no SCSI LUN, no mul
         <span class="lang-zh">驗證狀態</span>
     </h2>
     <p class="section-subtitle">
-        <span class="lang-en">3,365 unit tests run without an array or a device. What they cannot tell you is whether the endpoints exist, whether the field names are right, or whether a device ever appears &mdash; only an array can, and exactly one has.</span>
-        <span class="lang-zh">3,365 個單元測試不需要儲存伺服器或實體裝置即可執行。它們無法告訴你的是：端點是否存在、欄位名稱是否正確、裝置到底會不會出現 &mdash; 那隻有儲存伺服器能回答，而目前只有一台回答過。</span>
+        <span class="lang-en">3,374 unit tests run without an array or a device. What they cannot tell you is whether the endpoints exist, whether the field names are right, or whether a device ever appears &mdash; only an array can, and exactly one has.</span>
+        <span class="lang-zh">3,374 個單元測試不需要儲存伺服器或實體裝置即可執行。它們無法告訴你的是：端點是否存在、欄位名稱是否正確、裝置到底會不會出現 &mdash; 那隻有儲存伺服器能回答，而目前只有一台回答過。</span>
     </p>
 
     <h3>
@@ -1299,6 +1299,15 @@ DellPowerFlexPlugin                  <span class="comment"># no SCSI LUN, no mul
         <span class="lang-en">Changelog</span>
         <span class="lang-zh">變更紀錄</span>
     </h2>
+
+    <div class="changelog-entry">
+        <div class="changelog-version">v0.8.24~beta1</div>
+        <div class="changelog-date">2026-08-25</div>
+        <div class="changelog-summary">
+            <span class="lang-en">Creating a disk failed outright on any node whose host is in a PowerStore host group: the attach carried both host_id and host_group_id, which the array answers with HTTP 500 "Volume internal error" rather than a 422, so it read as an array fault. Attach and detach now share one helper that can name only one of the two. Present since 0.8.10 and affecting every host mode, not only the host-group mode added in 0.8.23. Reported by Alexander Gott (@alexandergott-afk), issue #11 &mdash; thank you.</span>
+            <span class="lang-zh">只要節點的 host 屬於某個 PowerStore host group，建立磁碟就會直接失敗：attach 同時帶了 host_id 與 host_group_id，而儲存伺服器對此回應的是 HTTP 500「Volume internal error」而不是 422，於是看起來像儲存伺服器故障。現在 attach 與 detach 共用同一個輔助函式，它只可能指名兩者之一。這個問題自 0.8.10 就存在，影響每一種 host 模式，不只是 0.8.23 新增的 host-group 模式。由 Alexander Gott（@alexandergott-afk）在 issue #11 回報 &mdash; 在此致謝。</span>
+        </div>
+    </div>
 
     <div class="changelog-entry">
         <div class="changelog-version">v0.8.23~beta1</div>

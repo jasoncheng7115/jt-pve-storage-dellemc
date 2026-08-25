@@ -5,6 +5,46 @@ English version: [CHANGELOG.md](CHANGELOG.md)
 
 版本規則：小版號逐次遞增，到 .99 才進位到次版號 —— 0.7.0、0.7.1、……、0.7.99，然後 0.8.0。所有 0.x 版本都屬於預先發行版；1.0.0 的門檻是實機測試通過。
 
+## [0.8.24~beta1] - 2026-08-25
+
+### 已修正
+- **只要節點的 host 物件屬於某個 PowerStore host group，建立磁碟就會直接失敗。**
+  儲存伺服器對 attach 回應 `HTTP 500: Volume internal error. Contact your support
+  provider. (0xE0A080010052)`，外掛隨即把剛建好的磁碟區清掉，於是整個虛擬機建立流程
+  失敗。
+
+  那個請求**同時**帶了 `host_id` 與 `host_group_id`。PowerStore 明確記載
+  *「Either host_id or host_group_id must be specified, but not both」*，而且對同時
+  帶兩者的主體回應的是 **500 而不是 422** —— 於是它看起來像儲存伺服器故障，而不像一個
+  本來就不該送出的請求。這也是它能存活這麼久的一大原因：訊息指向的是 Dell 支援，不是
+  這個外掛。
+
+  呼叫端會同時擁有這兩個值，而且是合理的：群組是對應要指名的對象，而 host 是用來掃描
+  可用 LUN 編號的對象 —— 因為群組對應會在每一個成員上佔用該編號，包括那些在加入群組
+  之前就已經有自己對應的成員。缺陷在於主體是把兩者各自獨立指派進去的，於是第二個就
+  漏了進去。現在 attach 與 detach 共用同一個輔助函式，而它只可能回傳兩者之一，所以
+  「同時帶兩個」的主體在結構上就組不出來。
+
+  由 **Alexander Gott（[@alexandergott-afk](https://github.com/alexandergott-afk)）**
+  在 [issue #11](https://github.com/jasoncheng7115/jt-pve-storage-dellemc/issues/11)
+  回報。在此致謝。
+
+  **這個問題自 0.8.10 就存在，並不是 0.8.23 新增的 `host-group` 模式造成的。** 只要
+  host 在某個群組裡，對應路徑就會走群組，不管它是怎麼進去的；所以任何 fabric 本來就
+  被劃進 host group 的人，在**每一種** host 模式下都會踩到。0.8.23 改變的是踩到它的
+  容易程度，因為外掛現在會自己把 host 放進群組。十三個版本 —— 而這條規則早就寫在同一
+  個檔案的 detach 路徑上：*「detach 指名一個 host 或一個群組，絕不同時兩個」*。知道，
+  卻只做對了一半。
+
+- `volume_detach` 是同一個形狀，它之所以沒出事，只是因為呼叫端剛好只傳了一個欄位。
+  那是呼叫端的自律，不是保證；而 attach 那條路徑，就是自律鬆掉時會發生的事。
+
+### 測試
+- `t/fake/powerstore.py` 現在會對「同時帶兩者」的對應請求回應儲存伺服器自己的 500。
+  把修正還原之後，它能**完整重現回報者的錯誤訊息**，診斷是這樣被確認的，而不是靠推測。
+- `t/07-powerstore-api.t` 釘住 attach 與 detach 的請求**主體**，包含「呼叫端在群組之外
+  又傳了 host」這個正是出事的形狀。
+
 ## [0.8.23~beta1] - 2026-08-25
 
 ### 新增

@@ -20,6 +20,11 @@ which is how a logout that had never worked was confirmed for five releases
   - GET /host_group/<unknown> answers 404, not an empty object: absent and
     "could not ask" have to stay distinguishable (rule 21a).
   - every non-GET requires the DELL-EMC-TOKEN header.
+  - attach and detach name a host OR a host group, never both. The real array
+    answers a body carrying both with HTTP 500 'Volume internal error'
+    (0xE0A080010052), which reads as an array fault rather than a bad request,
+    and that is what hid issue #11 for thirteen releases. This one answers 500
+    too, deliberately, so the fixture cannot make the client look correct.
 
 Usage:
 
@@ -89,6 +94,15 @@ class H(BaseHTTPRequestHandler):
         if not self._auth_ok():
             return self._err(401, "missing DELL-EMC-TOKEN")
         b = self._body(); LOG.append(("POST", p, b))
+        if p.endswith("/attach") or p.endswith("/detach"):
+            if b.get("host_id") and b.get("host_group_id"):
+                # As the array does: a 500, not a helpful 422.
+                return self._err(500, "Volume internal error. Contact your"
+                                      " support provider. (0xE0A080010052)")
+            if not b.get("host_id") and not b.get("host_group_id"):
+                return self._err(422, "either host_id or host_group_id is required")
+            LOG.append(("MAPPED", p, b))
+            return self._send(204, {})
         if p.endswith("/host_group"):
             if any(g["name"] == b.get("name") for g in GROUPS.values()):
                 return self._err(422, "a host group with that name exists")

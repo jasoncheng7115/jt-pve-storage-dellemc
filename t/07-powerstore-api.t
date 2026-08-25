@@ -1211,4 +1211,79 @@ ok(length($long) > 63, 'and do use the room PowerStore allows');
       . ' outside the group it was meant to be in');
 }
 
+# ---------------------------------------------------------------------------
+# A mapping names a host OR a host group, never both (issue #11)
+#
+# PowerStore documents "Either host_id or host_group_id must be specified, but
+# not both" for attach and detach alike, and answers a request carrying both
+# with HTTP 500 'Volume internal error' rather than a 422 - so it reads as an
+# array fault instead of a request that should never have been made. That
+# blocked every disk creation on a node whose host is in a host group, from
+# 0.8.10 until 0.8.24.
+#
+# The caller legitimately has both to hand: the group is who the mapping
+# names, and the host is who to scan for a free LUN id. The bug was that the
+# body was built by assigning each independently, so the second one leaked in.
+# These pin the body, not the intent.
+# ---------------------------------------------------------------------------
+
+{
+    my ($api, $ua) = make_api(handler => sub { json_response(200, {}) });
+
+    $api->volume_attach('v-1',
+        host_group_id => 'hg-1',
+        host_id       => 'h-1',    # for the LUN scan only
+        lun           => 3,
+    );
+
+    my $body = decode_json($ua->last_request->content);
+    is($body->{host_group_id}, 'hg-1', 'the group is what the attach names');
+    ok(!exists $body->{host_id},
+        'and the host does NOT travel with it, however the caller passed it')
+        or diag('PowerStore answers a body carrying both with HTTP 500');
+    is($body->{logical_unit_number}, 3, 'the LUN id is still sent explicitly');
+}
+
+{
+    my ($api, $ua) = make_api(handler => sub { json_response(200, {}) });
+
+    $api->volume_attach('v-1', host_id => 'h-1', lun => 4);
+
+    my $body = decode_json($ua->last_request->content);
+    is($body->{host_id}, 'h-1', 'a host-only attach names the host');
+    ok(!exists $body->{host_group_id}, '... and no group');
+}
+
+{
+    my ($api, $ua) = make_api(handler => sub { json_response(200, {}) });
+
+    $api->volume_detach('v-1', host_group_id => 'hg-1', host_id => 'h-1');
+
+    my $body = decode_json($ua->last_request->content);
+    is($body->{host_group_id}, 'hg-1', 'a detach names the group');
+    ok(!exists $body->{host_id},
+        '... and never both, which the detach path only avoided by caller'
+      . ' discipline before');
+}
+
+{
+    # The host is still consulted for the LUN id when attaching to a group: a
+    # group mapping occupies its id on every member, including one that
+    # carried mappings of its own before it joined.
+    my @asked;
+    my ($api, $ua) = make_api(handler => sub {
+        my ($req, $key) = @_;
+        push @asked, $key;
+        return json_response(200, []) if $key =~ m{GET /api/rest/host_volume_mapping};
+        return json_response(200, {});
+    });
+
+    $api->volume_attach('v-1', host_group_id => 'hg-1', host_id => 'h-1');
+
+    my $body = decode_json($ua->last_request->content);
+    ok(defined $body->{logical_unit_number},
+        'a LUN id is computed rather than left to the array');
+    ok(!exists $body->{host_id}, '... and the host still does not reach the body');
+}
+
 done_testing();

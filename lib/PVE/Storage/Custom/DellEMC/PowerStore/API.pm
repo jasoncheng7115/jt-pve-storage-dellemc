@@ -1050,23 +1050,54 @@ sub next_free_lun {
         . " pstore-lun-id-base.") . "\n";
 }
 
+# EITHER a host or a host group, never both.
+#
+# PowerStore's attach and detach both document "Either host_id or
+# host_group_id must be specified, but not both", and sending both is answered
+# HTTP 500 'Volume internal error' (0xE0A080010052) rather than a clean 422 -
+# so it reads as an array fault and not as a request this client should never
+# have made. That failure blocked every disk creation on a node whose host is
+# in a host group, from 0.8.10 until 0.8.24 (issue #11).
+#
+# The group wins when both are known, because a host that is in a group is
+# mapped THROUGH the group: that is the whole reason the caller has both to
+# hand. The host is still needed, but only to scan for a free LUN id, which is
+# a separate question from who the mapping names.
+#
+# Returned as a list so the body cannot be built with both in it. The old
+# shape assigned each independently, which is exactly how the caller's extra
+# argument leaked into the request.
+sub _mapping_target {
+    my ($self, %opts) = @_;
+
+    return (host_group_id => $opts{host_group_id})
+        if defined $opts{host_group_id} && length $opts{host_group_id};
+
+    return (host_id => $opts{host_id})
+        if defined $opts{host_id} && length $opts{host_id};
+
+    return ();
+}
+
 sub volume_attach {
     my ($self, $volume_id, %opts) = @_;
 
-    my $body = {};
-    $body->{host_id}       = $opts{host_id}       if defined $opts{host_id};
-    $body->{host_group_id} = $opts{host_group_id} if defined $opts{host_group_id};
+    my %target = $self->_mapping_target(%opts);
 
     die $self->_msg("volume_attach needs a host_id or a host_group_id") . "\n"
-        unless %$body;
+        unless %target;
+
+    my $body = { %target };
 
     # Always pass the LUN id explicitly; see next_free_lun.
     if (defined $opts{lun}) {
         $body->{logical_unit_number} = 0 + $opts{lun};
-    } elsif (defined $opts{host_id} || defined $opts{host_group_id}) {
+    } else {
         # A group mapping occupies its LUN id on every member, so the id has
         # to be free across the group AND on the host this node is, which may
-        # carry mappings of its own from before it joined.
+        # carry mappings of its own from before it joined. This is the one
+        # place host_id is still wanted alongside a group, and it never
+        # reaches the body.
         $body->{logical_unit_number} = 0 + $self->next_free_lun($opts{host_id},
             base     => $opts{lun_base},
             group_id => $opts{group_id} // $opts{host_group_id});
@@ -1078,14 +1109,15 @@ sub volume_attach {
 sub volume_detach {
     my ($self, $volume_id, %opts) = @_;
 
-    my $body = {};
-    $body->{host_id}       = $opts{host_id}       if defined $opts{host_id};
-    $body->{host_group_id} = $opts{host_group_id} if defined $opts{host_group_id};
+    # Same rule as attach, and the callers here happen to pass only one today.
+    # That is caller discipline rather than a guarantee, and the attach path
+    # shows what happens when it slips.
+    my %target = $self->_mapping_target(%opts);
 
     die $self->_msg("volume_detach needs a host_id or a host_group_id") . "\n"
-        unless %$body;
+        unless %target;
 
-    return $self->post("/volume/$volume_id/detach", $body, %opts);
+    return $self->post("/volume/$volume_id/detach", { %target }, %opts);
 }
 
 # ---------------------------------------------------------------------------

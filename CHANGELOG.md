@@ -7,6 +7,52 @@ Versioning: the patch number increments per release and runs to .99 before
 the minor number moves — 0.7.0, 0.7.1, … 0.7.99, then 0.8.0. Every 0.x
 release is a prerelease; 1.0.0 is the on-hardware test pass.
 
+## [0.8.24~beta1] - 2026-08-25
+
+### Fixed
+- **Creating a disk failed outright on any node whose host is in a PowerStore
+  host group.** The array answered the attach with `HTTP 500: Volume internal
+  error. Contact your support provider. (0xE0A080010052)`, the plugin cleaned
+  up the volume it had just made, and VM creation failed completely.
+
+  The request carried **both** `host_id` and `host_group_id`. PowerStore
+  documents *"Either host_id or host_group_id must be specified, but not
+  both"*, and answers a body carrying both with a **500 rather than a 422** —
+  so it reads as an array fault rather than as a request that should never
+  have been made. That is a large part of why it survived: the message points
+  at Dell support, not at this plugin.
+
+  The caller has both legitimately. The group is who the mapping names; the
+  host is who to scan for a free LUN id, because a group mapping occupies its
+  id on every member including one that carried mappings before it joined. The
+  defect was that the body was built by assigning each independently, so the
+  second one leaked in. Attach and detach now share one helper that can return
+  only one of the two, so a body carrying both cannot be constructed.
+
+  Reported by **Alexander Gott ([@alexandergott-afk](https://github.com/alexandergott-afk))**
+  in [issue #11](https://github.com/jasoncheng7115/jt-pve-storage-dellemc/issues/11).
+  Thank you.
+
+  **Present since 0.8.10, and not caused by the `host-group` mode added in
+  0.8.23.** The mapping path takes the group whenever the host is in one,
+  however it got there, so anyone whose fabric was zoned into a host group hit
+  this in every host mode. What 0.8.23 changed is how easy it is to reach,
+  because the plugin now puts hosts into groups itself. Thirteen releases, and
+  the rule was already written down in this file's own detach path: *"The
+  detach names a host or a group, never both"*. Known, and applied to one half.
+
+- `volume_detach` had the same shape and was safe only because its callers
+  happened to pass one field. That is caller discipline rather than a
+  guarantee, and the attach path is what happens when it slips.
+
+### Testing
+- `t/fake/powerstore.py` answers a mapping request carrying both with the
+  array's own 500. With the fix reverted it reproduces the reporter's error
+  exactly, which is how the diagnosis was confirmed rather than assumed.
+- `t/07-powerstore-api.t` pins the request **body** for attach and detach,
+  including the case where the caller passes a host alongside a group, which
+  is the shape that broke.
+
 ## [0.8.23~beta1] - 2026-08-25
 
 ### Added

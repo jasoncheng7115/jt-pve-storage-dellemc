@@ -1,3 +1,29 @@
+jt-pve-storage-dellemc (0.8.24~beta1-1) unstable; urgency=critical
+
+  * BETA RELEASE. Not for production use.
+  * Fixed: creating a disk failed on any node whose host object is a member of
+    a PowerStore host group, with HTTP 500 "Volume internal error"
+    (0xE0A080010052), and the volume was then cleaned up so VM creation failed
+    completely. The attach request carried BOTH host_id and host_group_id.
+    PowerStore documents "Either host_id or host_group_id must be specified,
+    but not both" and answers a body carrying both with a 500 rather than a
+    422, so it reads as an array fault instead of a bad request. The caller
+    passes both legitimately - the group is who the mapping names, the host is
+    who to scan for a free LUN id - and the body was built by assigning each
+    independently, so the second leaked in. The body now carries exactly one,
+    by construction. Reported by Alexander Gott (@alexandergott-afk) in issue
+    #11.
+  * Present since 0.8.10 and affecting every host mode, not only the
+    'host-group' mode added in 0.8.23: the mapping path takes the group
+    whenever the host is in one, however it got there. 0.8.23 made it far
+    easier to reach, because the plugin now puts hosts into groups itself.
+  * volume_detach had the same shape and was safe only by caller discipline;
+    both now share one helper that can return only one of the two.
+  * t/fake/powerstore.py answers a both-at-once mapping with the array's own
+    500, so this cannot be confirmed by a permissive fixture again.
+
+ -- Jason Cheng <jason@jason.tools>  Tue, 25 Aug 2026 14:30:00 +0800
+
 jt-pve-storage-dellemc (0.8.23~beta1-1) unstable; urgency=medium
 
   * BETA RELEASE. Not for production use.
