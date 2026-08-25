@@ -59,12 +59,19 @@ sub common_properties {
                 . " 'per-node' registers one host per PVE node, which is what"
                 . " lets the array report per-node connectivity. 'shared'"
                 . " registers a SINGLE HOST OBJECT for the whole cluster, with"
-                . " every node's initiators in it. It is not an array host"
-                . " GROUP: this plugin does not create those, though it does"
-                . " map through one that already exists, because a host in a"
-                . " group can only be mapped through the group.",
+                . " every node's initiators in it; it is not an array host"
+                . " group. 'host-group' keeps the per-node host objects and"
+                . " ALSO puts them in an array host group named after the"
+                . " cluster, so one mapping reaches every node (PowerStore"
+                . " only). A host that is already a member of some other group"
+                . " is left there and mapped through that group: a host"
+                . " belongs to at most one host group and is mapped through"
+                . " it, so moving it would take away whatever that group maps."
+                . " Whatever the mode, a host group that already exists is"
+                . " always mapped through, because a host in a group cannot be"
+                . " mapped any other way.",
             type => 'string',
-            enum => ['per-node', 'shared'],
+            enum => ['per-node', 'shared', 'host-group'],
             default => 'per-node',
         },
         'dell-cluster-name' => {

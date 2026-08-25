@@ -500,6 +500,43 @@ sub get_managed_capacity {
     return ($total, $used, $total - $used);
 }
 
+# The recycle bin, for diagnosis only.
+#
+# A volume deleted from PowerStore Manager goes here: invisible to every volume
+# listing, and the array still refuses its name. That is what made a create
+# retry loop ask the wrong view ten times (issue #9).
+#
+# Dell's python-powerstore does NOT wrap these endpoints - grepping its
+# constants.py for 'recycle' finds nothing - and an earlier version of this
+# plugin concluded from that absence that there was nothing to ask. Wrong: the
+# reporter read /recycle_bin, /recycle_bin/{id}, DELETE /recycle_bin/{id},
+# POST /recycle_bin/{id}/recover and POST /recycle_bin/empty out of his own
+# array's API reference (PowerStore REST API 4.3.0.0), where they are marked
+# "Was added in version 3.5.0.0". An SDK not wrapping an endpoint says nothing
+# about whether the array has it, and the array's own reference is the source
+# tied to the firmware actually running.
+#
+# READ ONLY here, deliberately. Permanently deleting somebody's recycled volume
+# to make room for a name is not this plugin's decision: the recycle bin is a
+# data-protection feature and its whole point is that removal is deliberate.
+#
+# Returns undef when the array has no such endpoint - anything before 3.5.0.0 -
+# which is why every caller treats this as a nice-to-have.
+sub recycled_by_name {
+    my ($self, $name, %opts) = @_;
+
+    return undef unless defined $name && length $name;
+
+    my $rows = eval {
+        $self->get('/recycle_bin',
+            { name => "eq.$name", select => 'id,name,type,deleted_timestamp' },
+            %opts);
+    };
+    return undef if $@;
+
+    return (ref($rows) eq 'ARRAY' && @$rows) ? $rows->[0] : undef;
+}
+
 # ---------------------------------------------------------------------------
 # Volume groups
 #
@@ -861,21 +898,70 @@ sub host_delete {
     return $self->_request('DELETE', "/host/$host_id", undef, %opts);
 }
 
+# A host belongs to AT MOST ONE host group. The host object carries
+# 'host_group_id', singular, where a volume carries 'volume_groups', a list.
+# So joining a group means LEAVING whichever one the host is in, and since a
+# host in a group is mapped through that group, leaving takes away every volume
+# the old group was mapping to it. That is why nothing here ever moves a host
+# between groups; see _hg_ensure_member.
+sub _host_group_select {
+    return 'id,name,description,hosts(id,name)';
+}
+
 sub host_group_get_by_name {
     my ($self, $name, %opts) = @_;
 
     my $rows = $self->get('/host_group',
-        { name => "eq.$name", select => 'id,name,hosts' }, %opts);
+        { name => "eq.$name", select => $self->_host_group_select }, %opts);
 
     return (ref($rows) eq 'ARRAY' && @$rows) ? $rows->[0] : undef;
+}
+
+# undef when there is no such group, dies when it could not be asked.
+sub host_group_get {
+    my ($self, $id, %opts) = @_;
+
+    return $self->get_or_undef("/host_group/$id",
+        { select => $self->_host_group_select }, %opts);
 }
 
 sub host_group_create {
     my ($self, $name, $host_ids, %opts) = @_;
 
-    my $res = $self->post('/host_group', { name => $name, host_ids => $host_ids }, %opts);
+    my $body = { name => $name };
+    $body->{host_ids} = $host_ids
+        if ref($host_ids) eq 'ARRAY' && @$host_ids;
+    $body->{description} = $opts{description} if defined $opts{description};
+
+    my $res = $self->post('/host_group', $body, %opts);
 
     return ref($res) eq 'HASH' ? $res->{id} : undef;
+}
+
+# add and remove are MUTUALLY EXCLUSIVE in one request: Dell's own client
+# builds the payload with 'if remove_host_ids ... elsif add_host_ids', so a
+# move is two calls with a window in between where the host is in no group at
+# all. Nothing here performs that move, but the separation is why these are two
+# methods rather than one.
+sub host_group_add_hosts {
+    my ($self, $id, $host_ids, %opts) = @_;
+
+    return unless ref($host_ids) eq 'ARRAY' && @$host_ids;
+
+    return $self->patch("/host_group/$id", { add_host_ids => $host_ids }, %opts);
+}
+
+sub host_group_remove_hosts {
+    my ($self, $id, $host_ids, %opts) = @_;
+
+    return unless ref($host_ids) eq 'ARRAY' && @$host_ids;
+
+    return $self->patch("/host_group/$id", { remove_host_ids => $host_ids }, %opts);
+}
+
+sub host_group_delete {
+    my ($self, $id, %opts) = @_;
+    return $self->_request('DELETE', "/host_group/$id", undef, %opts);
 }
 
 # ---------------------------------------------------------------------------

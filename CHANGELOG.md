@@ -7,6 +7,68 @@ Versioning: the patch number increments per release and runs to .99 before
 the minor number moves — 0.7.0, 0.7.1, … 0.7.99, then 0.8.0. Every 0.x
 release is a prerelease; 1.0.0 is the on-hardware test pass.
 
+## [0.8.23~beta1] - 2026-08-25
+
+### Added
+- **`dell-host-mode host-group`** (PowerStore only). It keeps the per-node host
+  objects, so the array still reports per-node connectivity, and also puts them
+  in a host group named `pve-<cluster>-cluster`, so one mapping reaches every
+  node. Requested by
+  **Alexander Gott ([@alexandergott-afk](https://github.com/alexandergott-afk))**
+  in [issue #5](https://github.com/jasoncheng7115/jt-pve-storage-dellemc/issues/5),
+  who also settled the hard part of the design.
+
+  One fact from Dell's own client code shapes it: **a host belongs to at most
+  one host group.** A host object carries `host_group_id`, singular, where a
+  volume carries `volume_groups`, a list. And a host in a group is mapped
+  *through* that group. So joining our group means leaving whichever group the
+  host is in, which takes away every volume that group was mapping to it — and
+  the move is not even atomic, since `add_host_ids` and `remove_host_ids` are
+  mutually exclusive in one request.
+
+  Hence: a host in no group is added, a host already in ours is left alone, and
+  **a host in somebody else's group is never moved.** It is reported once and
+  volumes keep being mapped through that group, which works. That host can
+  serve Proxmox or the other workload but not both, and choosing is not the
+  plugin's decision. Removal is never automatic, and only groups this plugin
+  created — proven by a marker in the description — are ever deleted.
+
+- **The cluster name is detected when a storage is added**, from
+  `/etc/pve/corosync.conf`, and written into the storage configuration.
+  [Issue #4](https://github.com/jasoncheng7115/jt-pve-storage-dellemc/issues/4).
+
+  Existing storages are deliberately untouched. The cluster name is part of the
+  host object name, an initiator belongs to exactly one host object, and
+  re-deriving the name at activation would make every storage that relied on
+  the `pve` default stop finding its host, create a new one, and have the array
+  refuse the initiators or move them off the object every node's volumes are
+  mapped to. Deciding once, when the storage is created and nothing on the
+  array is named yet, is the only moment it is free. The reporter confirmed no
+  migration is wanted.
+
+### Fixed
+- **The message for a refused name now says what is holding it.** When the
+  array refuses a name its own listing shows as free, the plugin asks
+  `/recycle_bin` and names the object, its id and when it was deleted.
+
+  The reporter supplied those endpoints, and in doing so corrected 0.8.20's
+  reasoning. That release said "Dell's SDK has no recycle-bin endpoint, so
+  there is nothing reliable to ask". The first half is true — `python-powerstore`
+  does not wrap it — but the conclusion was wrong: `/recycle_bin` has existed
+  since PowerStore 3.5.0.0, and an SDK not wrapping an endpoint says nothing
+  about whether the array has it. **The array's own API reference is the source
+  tied to the firmware actually running**, which is the same lesson this
+  project already wrote down for Unity and did not apply here.
+
+  The lookup is **read only**. Permanently deleting somebody's recycled volume
+  to free a name is not this plugin's decision; the recycle bin exists so that
+  deletion is deliberate.
+
+### Removed
+- A dead `encode_host_group_name` that named a host group identically to the
+  shared-mode **host** object. Nothing but a test called it, and it dated from
+  the belief corrected in 0.8.22 that shared mode creates a host group.
+
 ## [0.8.22~beta1] - 2026-08-25
 
 ### Fixed

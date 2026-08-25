@@ -72,6 +72,9 @@ sub multipath_config_version { 1 }
 
 sub capacity_scope { 'array' }
 
+# The only family that creates array host groups. See _hg_ensure_member.
+sub supported_host_modes { ['per-node', 'shared', 'host-group'] }
+
 # PowerStore volumes are thin, always: the array has no thick provisioning to
 # ask for, so an unwritten region reads as zeroes.
 sub new_volumes_read_as_zeroes { return 1 }
@@ -705,6 +708,31 @@ sub _array_get_volume {
     return $class->_volume_row($row);
 }
 
+# The array refuses a name its listing shows as free. On PowerStore the usual
+# reason is the recycle bin, and since 3.5.0.0 it can be asked directly - so
+# say which object it is rather than offering the operator a list of things to
+# check (issue #9).
+sub _explain_refused_name {
+    my ($class, $scfg, $storeid, $array_name, %opts) = @_;
+
+    my $row = eval {
+        $class->_api($scfg, storeid => $storeid, %opts)
+              ->recycled_by_name($array_name, %opts);
+    };
+    return undef unless ref($row) eq 'HASH' && defined $row->{id};
+
+    my $when = $row->{deleted_timestamp};
+
+    return "  '$array_name' is in the PowerStore recycle bin"
+         . (defined $when && length $when ? ", deleted $when" : '')
+         . " (id $row->{id}). A recycled volume keeps its name and is"
+         . " invisible to every volume listing, which is why the listing"
+         . " disagreed with the create.\n"
+         . "  Recover it, or permanently delete it, in PowerStore Manager"
+         . " under the recycle bin. This plugin will not remove it for you:"
+         . " the recycle bin exists so that deletion is deliberate.\n";
+}
+
 sub _array_list_volumes {
     my ($class, $scfg, $storeid, $prefix, %opts) = @_;
 
@@ -1125,7 +1153,23 @@ sub _adoptable_host {
     return $host;
 }
 
+# Resolve this node's host object, then, in 'host-group' mode, make sure it is
+# in this cluster's host group. The group step is deliberately outside the
+# resolution: it must never be able to fail the activation that reaches it.
 sub _array_ensure_host {
+    my ($class, $scfg, $storeid, %opts) = @_;
+
+    my $name = $class->_array_ensure_host_object($scfg, $storeid, %opts);
+
+    if ($class->_host_mode($scfg) eq 'host-group') {
+        eval { $class->_hg_ensure_member($scfg, $storeid, $name, %opts) };
+        warn "Host group handling for '$name' failed: $@" if $@;
+    }
+
+    return $name;
+}
+
+sub _array_ensure_host_object {
     my ($class, $scfg, $storeid, %opts) = @_;
 
     my $api       = $class->_api($scfg, %opts);
@@ -1234,6 +1278,131 @@ sub _array_ensure_host {
     }
 
     return $name;
+}
+
+# ---------------------------------------------------------------------------
+# Host groups  ('dell-host-mode host-group')
+#
+# Requested as issue #5: reflect the cluster on the array, so one mapping
+# covers every node. The plugin already MAPS through a host group when one
+# exists, because a host that is a member can only be mapped through the
+# group; what this adds is creating and maintaining it.
+#
+# One fact from Dell's own client code shapes all of it. A host belongs to AT
+# MOST ONE host group - a host object carries 'host_group_id', singular, where
+# a volume carries 'volume_groups', a list. So joining our group means leaving
+# whichever group the host is in, the move is not even atomic (add and remove
+# are mutually exclusive in one request), and since a host in a group is mapped
+# THROUGH that group, leaving takes away every volume the old group was
+# mapping to it.
+#
+# Hence the rule, agreed with the reporter:
+#
+#   host in no group          - add it to ours
+#   host already in our group - nothing to do
+#   host in someone else's    - NEVER move it. Report once and carry on
+#                               mapping through their group, which works.
+#
+# The last case is the common one on a fabric zoned before Proxmox was
+# installed, and it is not the plugin's decision to make: that host can serve
+# Proxmox or something else, not both, and an operator has to choose.
+# ---------------------------------------------------------------------------
+
+use constant HG_OWNER_MARK => '[pve-dellemc-cluster]';
+
+sub _hg_name {
+    my ($class, $scfg) = @_;
+    return eval { $class->naming->encode_host_group_name($class->_cluster_name($scfg)) };
+}
+
+sub _hg_is_ours {
+    my ($class, $group) = @_;
+
+    return 0 unless ref($group) eq 'HASH';
+    my $desc = $group->{description};
+    return 0 unless defined $desc && length $desc;
+
+    return index($desc, HG_OWNER_MARK) >= 0 ? 1 : 0;
+}
+
+sub _hg_ensure_member {
+    my ($class, $scfg, $storeid, $host_name, %opts) = @_;
+
+    my $hg_name = $class->_hg_name($scfg);
+    return undef unless defined $hg_name && length $hg_name;
+
+    my $api = $class->_api($scfg, storeid => $storeid, %opts);
+
+    my ($host_id, $group_id) = $class->_host_identity($scfg, $host_name, %opts);
+    return undef unless defined $host_id && length $host_id;
+
+    # Already in a group. The only question is whose.
+    if (defined $group_id && length $group_id) {
+        my $group = eval { $api->host_group_get($group_id, %opts) };
+
+        # Could not ask. Saying nothing is right: the alternative is deciding
+        # it is not ours and trying to add the host elsewhere, which is the
+        # move this whole design exists to avoid.
+        return undef if $@;
+
+        my $gname = (ref($group) eq 'HASH' && $group->{name}) ? $group->{name} : $group_id;
+        return $group_id if defined $group->{name} && $group->{name} eq $hg_name;
+        return $group_id if $class->_hg_is_ours($group);
+
+        $class->_warn_once($storeid, 'hg-foreign',
+            "Storage '$storeid': host '$host_name' is already a member of the"
+          . " host group '$gname', which this plugin did not create, so it is"
+          . " left there. A host belongs to at most one host group and is"
+          . " mapped through it, so moving it would take away every volume"
+          . " that group maps. Volumes are mapped through '$gname' instead,"
+          . " which works. Move the host by hand if it should be in"
+          . " '$hg_name'.");
+
+        return $group_id;
+    }
+
+    # In no group: ours to add it to. Check-then-create inside the loop,
+    # because every node of the cluster reaches this concurrently on its own
+    # activation and they race for the same group (rule 22).
+    my $err;
+    for my $attempt (1 .. 3) {
+        my $group = eval { $api->host_group_get_by_name($hg_name, %opts) };
+        $err = $@;
+
+        if (ref($group) eq 'HASH' && defined $group->{id}) {
+            eval { $api->host_group_add_hosts($group->{id}, [$host_id], %opts) };
+            if (my $add_err = $@) {
+                # A racing node may have added it a moment ago; that is not a
+                # failure worth reporting as one.
+                my (undef, $now) = $class->_host_identity($scfg, $host_name, %opts);
+                return $now if defined $now && length $now;
+                $err = $add_err;
+                next;
+            }
+            return $group->{id};
+        }
+
+        # An error above is not "there is no such group" (rule 21a), and
+        # creating one on a failed lookup is how a duplicate appears.
+        next if $err;
+
+        my $id = eval {
+            $api->host_group_create($hg_name, [$host_id],
+                description => "Proxmox VE cluster "
+                             . $class->_cluster_name($scfg) . ' ' . HG_OWNER_MARK,
+                %opts);
+        };
+        $err = $@;
+        return $id if !$err && defined $id && length $id;
+    }
+
+    $class->_warn_once($storeid, 'hg-create',
+        "Storage '$storeid': could not put host '$host_name' into the host"
+      . " group '$hg_name'" . ($err ? ": $err" : '') . "  Volumes are mapped to"
+      . " the host directly, which works; the group is an convenience for"
+      . " managing the array, not a requirement.");
+
+    return undef;
 }
 
 sub _array_list_hosts {

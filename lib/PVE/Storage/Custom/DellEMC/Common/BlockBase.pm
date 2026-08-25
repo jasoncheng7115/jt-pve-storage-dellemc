@@ -359,6 +359,14 @@ sub _array_ping         { $_[0]->_abstract('_array_ping') }
 sub _array_get_capacity { $_[0]->_abstract('_array_get_capacity') }
 
 sub _array_get_volume    { $_[0]->_abstract('_array_get_volume') }
+
+# Why might the array be refusing a name its own listing shows as free?
+#
+# Optional: a family that cannot ask returns undef and the caller falls back to
+# naming the possibilities. Never dies - this runs while composing an error
+# message, and a failure here would replace a useful message with a useless
+# one.
+sub _explain_refused_name { return undef }
 sub _array_list_volumes  { $_[0]->_abstract('_array_list_volumes') }
 sub _array_create_volume { $_[0]->_abstract('_array_create_volume') }
 sub _array_delete_volume { $_[0]->_abstract('_array_delete_volume') }
@@ -1570,15 +1578,25 @@ sub alloc_image {
 
         # Two different failures, and only one of them is worth retrying.
         if ($attempt >= ALLOC_MAX_ATTEMPTS) {
-            die "Could not find a free disk id for VM $vmid on storage"
-              . " '$storeid' after $attempt attempts. The array refused every"
-              . " name tried (" . join(', ', map { "disk$_" } sort { $a <=> $b } keys %tried)
-              . ") while its own volume listing showed them as free. On"
-              . " PowerStore a volume deleted from PowerStore Manager stays in"
-              . " the recycle bin, invisible to the listing and still holding"
-              . " its name; permanently remove it there, or check for another"
-              . " object of a kind this listing does not show.\n"
-                if %tried;
+            if (%tried) {
+                my $names = join(', ', map { "disk$_" }
+                                       sort { $a <=> $b } keys %tried);
+
+                # Ask the family whether it can name what is holding one, so
+                # the message states a fact instead of listing possibilities.
+                my $why = $class->_explain_refused_name($scfg, $storeid,
+                    $array_name);
+
+                die "Could not find a free disk id for VM $vmid on storage"
+                  . " '$storeid' after $attempt attempts. The array refused"
+                  . " every name tried ($names) while its own volume listing"
+                  . " showed them as free.\n"
+                  . ($why // "  Something is holding those names that this"
+                           . " listing does not show. On PowerStore a volume"
+                           . " deleted from PowerStore Manager stays in the"
+                           . " recycle bin, which is exactly that; check there"
+                           . " first.\n");
+            }
 
             die "Could not find a free disk id for VM $vmid on storage"
               . " '$storeid' after $attempt attempts; allocations from other"
@@ -3460,6 +3478,29 @@ sub supported_protocols { return ['iscsi', 'fc'] }
 #
 # On an update PVE passes only the properties being changed, so an update
 # that does not touch the protocol has nothing to check.
+# Which host modes this family implements.
+#
+# 'dell-host-mode' is declared once in Common::Schema for every type, because
+# PVE::SectionConfig::init dies on a duplicate property name and takes the
+# whole storage layer down with it. So its enum lists every mode ANY family
+# supports and this is what narrows it - lesson 41 exactly, which was a
+# protocol accepted at 'pvesm add' and only surfacing later, or never.
+sub supported_host_modes { return ['per-node', 'shared'] }
+
+sub _check_host_mode {
+    my ($class, $storeid, $config) = @_;
+
+    my $mode = $config->{'dell-host-mode'};
+    return 1 unless defined $mode && length $mode;
+
+    my $allowed = $class->supported_host_modes;
+    return 1 if grep { $_ eq $mode } @$allowed;
+
+    die "Storage type '" . $class->type() . "' supports "
+      . join(' or ', map { "'$_'" } @$allowed)
+      . " for 'dell-host-mode'; '$mode' is not implemented for this family.\n";
+}
+
 sub _check_protocol {
     my ($class, $storeid, $config) = @_;
 
@@ -3533,11 +3574,60 @@ sub _check_prefix_collision {
     return 1;
 }
 
+# The Proxmox cluster's own name, or undef on a node that is not in a cluster.
+#
+# Read from corosync.conf directly rather than through PVE::Cluster, because
+# this runs during 'pvesm add' and the answer has to be the same whether or not
+# pmxcfs happens to have the cluster info cached: get_clinfo() on this node
+# returns an empty hash while /etc/pve/corosync.conf plainly says cluster1.
+#
+# A standalone node has no corosync.conf at all, which is not an error - it is
+# the answer that there is no cluster name to use.
+sub _detected_cluster_name {
+    my ($class) = @_;
+
+    my $file = '/etc/pve/corosync.conf';
+    return undef unless -r $file;
+
+    my $content = eval { PVE::Tools::file_get_contents($file, 64 * 1024) };
+    return undef unless defined $content;
+
+    # The captured value, never the line - the same taint-and-correctness
+    # discipline used for names read out of /sys (rule 36).
+    for my $line (split /\n/, $content) {
+        next unless $line =~ /^\s*cluster_name\s*:\s*([A-Za-z0-9][A-Za-z0-9_.-]*)\s*\z/;
+        return $1;
+    }
+
+    return undef;
+}
+
 sub on_add_hook {
     my ($class, $storeid, $scfg, %param) = @_;
 
     $class->_check_protocol($storeid, $scfg);
+    $class->_check_host_mode($storeid, $scfg);
     $class->_check_prefix_collision($storeid, $scfg);
+
+    # Resolve the cluster name once, HERE, and write it into the storage
+    # configuration. PVE hands this the hash it is about to write out, so a key
+    # set now is persisted.
+    #
+    # Deriving it at every activation instead would be an upgrade that renames
+    # host objects: the name is part of 'pve-<cluster>-<node>', an initiator
+    # belongs to exactly one host object on these arrays, and a storage that
+    # had been running as 'pve' would stop finding its host, create a new one,
+    # and have the array refuse the initiators or move them off the object
+    # every node's volumes are mapped to. Deciding once, when the storage is
+    # created and nothing on the array is named yet, is the only moment this is
+    # free. Requested as issue #4, and the reporter confirmed no migration for
+    # existing storages is wanted.
+    if (!defined $scfg->{'dell-cluster-name'}
+        || !length $scfg->{'dell-cluster-name'}) {
+        if (defined(my $detected = $class->_detected_cluster_name())) {
+            $scfg->{'dell-cluster-name'} = $detected;
+        }
+    }
 
     # PVE strips the sensitive properties out of the config and passes them
     # here instead.
@@ -3659,6 +3749,7 @@ sub on_update_hook {
     my ($class, $storeid, $update, %param) = @_;
 
     $class->_check_protocol($storeid, $update);
+    $class->_check_host_mode($storeid, $update);
 
     # A password given on an update replaces the stored one. An update that
     # does not mention it leaves the file alone - 'pvesm set --content ...'

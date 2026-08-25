@@ -1,3 +1,33 @@
+jt-pve-storage-dellemc (0.8.23~beta1-1) unstable; urgency=medium
+
+  * BETA RELEASE. Not for production use.
+  * Added: 'dell-host-mode host-group' (PowerStore only), which keeps the
+    per-node host objects and also puts them in an array host group named
+    after the cluster, so one mapping reaches every node. Requested by
+    Alexander Gott (@alexandergott-afk) in issue #5, who also settled what to
+    do about a host that is already in a group. A host belongs to at most one
+    host group and is mapped THROUGH it, so a host already in somebody else's
+    group is left there and reported once: moving it would take away every
+    volume that group maps to the node. Removal is never automatic and only
+    groups this plugin created are ever deleted.
+  * Added: the cluster name is now read from /etc/pve/corosync.conf when a
+    storage is ADDED and written into its configuration, so nobody has to
+    remember --dell-cluster-name. Existing storages are deliberately left
+    alone, because the name is part of the host object name and re-deriving it
+    at activation would make a storage stop finding its host. Issue #4, and
+    the reporter confirmed no migration is wanted.
+  * The failure message for a name the array refuses while its listing shows
+    it free now names the object holding it. The reporter supplied the
+    endpoints: /recycle_bin exists since PowerStore 3.5.0.0, even though
+    python-powerstore does not wrap it, which is what an earlier version of
+    this plugin wrongly took as proof there was nothing to ask. Read only: the
+    recycle bin exists so that deletion is deliberate.
+  * Removed a dead encode_host_group_name that named a host group the same as
+    the shared-mode HOST object. Nothing called it but a test, and it dated
+    from the belief corrected in 0.8.22.
+
+ -- Jason Cheng <jason@jason.tools>  Tue, 25 Aug 2026 12:00:00 +0800
+
 jt-pve-storage-dellemc (0.8.22~beta1-1) unstable; urgency=low
 
   * BETA RELEASE. Not for production use.

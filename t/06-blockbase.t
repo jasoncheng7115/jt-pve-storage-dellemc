@@ -1971,6 +1971,26 @@ SKIP: {
     like($err, qr/recycle bin/,
         'and names the cause an operator can act on')
         or diag("said instead: $err");
+
+    # Without a family that can look, the message offers the recycle bin as
+    # the thing to check. With one, it says which object is holding the name.
+    # The reporter of issue #9 supplied the endpoints for that: /recycle_bin
+    # exists since PowerStore 3.5.0.0, even though python-powerstore does not
+    # wrap it - which is why an earlier version of this plugin wrongly
+    # concluded there was nothing to ask.
+    {
+        no warnings 'redefine';
+        local *Test::Plugin::_explain_refused_name = sub {
+            return "  'pve-t1-100-disk0' is in the PowerStore recycle bin"
+                 . " (id rb-7).\n";
+        };
+        Test::Plugin->reset_state();
+        $Test::Plugin::RECYCLED{"pve-t1-100-disk$_"} = 1 for 0 .. 20;
+
+        eval { Test::Plugin->alloc_image('t1', $scfg, 100, 'raw', undef, 1024 * 1024) };
+        like($@, qr/\Qid rb-7\E/,
+            'a family that can ask names the object holding the name');
+    }
     unlike($err, qr/from other nodes kept taking it first/,
         '... rather than blaming other nodes, which is a different failure'
       . ' and the only one worth retrying');

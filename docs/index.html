@@ -171,7 +171,7 @@
     <div class="hero__glow"></div>
     <div class="hero__glow-left"></div>
     <div class="hero__content">
-        <div class="hero__badge">v0.8.22~beta1 <span class="hero__badge-sep"></span> MIT License</div>
+        <div class="hero__badge">v0.8.23~beta1 <span class="hero__badge-sep"></span> MIT License</div>
         <h1 class="hero__title">jt-pve-storage-dellemc</h1>
         <p class="hero__project-desc">
             <span class="lang-en">Dell EMC Storage Plugins for Proxmox VE</span>
@@ -1138,8 +1138,8 @@ DellPowerFlexPlugin                  <span class="comment"># no SCSI LUN, no mul
         <span class="lang-zh">驗證狀態</span>
     </h2>
     <p class="section-subtitle">
-        <span class="lang-en">3,340 unit tests run without an array or a device. What they cannot tell you is whether the endpoints exist, whether the field names are right, or whether a device ever appears &mdash; only an array can, and exactly one has.</span>
-        <span class="lang-zh">3,340 個單元測試不需要儲存伺服器或實體裝置即可執行。它們無法告訴你的是：端點是否存在、欄位名稱是否正確、裝置到底會不會出現 &mdash; 那隻有儲存伺服器能回答，而目前只有一台回答過。</span>
+        <span class="lang-en">3,365 unit tests run without an array or a device. What they cannot tell you is whether the endpoints exist, whether the field names are right, or whether a device ever appears &mdash; only an array can, and exactly one has.</span>
+        <span class="lang-zh">3,365 個單元測試不需要儲存伺服器或實體裝置即可執行。它們無法告訴你的是：端點是否存在、欄位名稱是否正確、裝置到底會不會出現 &mdash; 那隻有儲存伺服器能回答，而目前只有一台回答過。</span>
     </p>
 
     <h3>
@@ -1299,6 +1299,15 @@ DellPowerFlexPlugin                  <span class="comment"># no SCSI LUN, no mul
         <span class="lang-en">Changelog</span>
         <span class="lang-zh">變更紀錄</span>
     </h2>
+
+    <div class="changelog-entry">
+        <div class="changelog-version">v0.8.23~beta1</div>
+        <div class="changelog-date">2026-08-25</div>
+        <div class="changelog-summary">
+            <span class="lang-en">A new host mode, dell-host-mode host-group (PowerStore only): per-node host objects placed in an array host group named after the cluster, so one mapping reaches every node. A host belongs to at most one host group and is mapped through it, so a host already in somebody else's group is left there and reported, never moved. Also: the cluster name is detected from corosync.conf when a storage is added, and a refused volume name now names the recycled object holding it. Requested by Alexander Gott (@alexandergott-afk), issues #4 and #5.</span>
+            <span class="lang-zh">新增一種 host 模式 dell-host-mode host-group（僅 PowerStore）：各節點的 host 物件會被放進一個以叢集命名的儲存伺服器 host group，讓一次對應就能觸及每一台節點。一個 host 最多只能屬於一個 host group，而且是透過它被對應的，所以已經在別人群組裡的 host 會被留在原處並回報，絕不搬動。另外：加入儲存時會從 corosync.conf 偵測叢集名稱，而被拒絕的磁碟區名稱現在會指出是哪個被回收的物件佔住了它。由 Alexander Gott（@alexandergott-afk）在 issue #4 與 #5 提出。</span>
+        </div>
+    </div>
 
     <div class="changelog-entry">
         <div class="changelog-version">v0.8.22~beta1</div>

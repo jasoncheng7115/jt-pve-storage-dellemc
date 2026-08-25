@@ -16,7 +16,7 @@ plugins — that is why the prefixes exist.
 | `dell-password` | string | yes | — | REST API password |
 | `dell-ssl-verify` | boolean | no | `0` | Verify the array's TLS certificate |
 | `dell-protocol` | `iscsi` \| `fc` | no | `iscsi` | SAN protocol |
-| `dell-host-mode` | `per-node` \| `shared` | no | `per-node` | One host object per node, or one for the cluster |
+| `dell-host-mode` | `per-node` \| `shared` \| `host-group` | no | `per-node` | One host object per node, one for the cluster, or per-node hosts inside an array host group (PowerStore only) |
 | `dell-cluster-name` | string | no | `pve` | Cluster name used in host object names |
 | `dell-device-timeout` | 10–300 | no | `60` | Seconds to wait for a volume's device to appear |
 | `dell-portal-probe-timeout` | 0–30 | no | `2` | TCP pre-check per iSCSI portal; 0 disables it |
@@ -244,12 +244,24 @@ node's initiators into it. Fewer objects on the array, but the array can no
 longer tell you which node a path belongs to.
 
 It is **not** an array host group, and until 0.8.22 this document and the
-option's own description both said it was. The plugin does not create host
-groups. It does map through one that already exists: a host that is a member
-of a group can only be mapped through the group, so if you build the group
-yourself and put the per-node hosts in it, one mapping covers the cluster and
-the plugin follows it. Creating and maintaining that group is
-[issue #5](https://github.com/jasoncheng7115/jt-pve-storage-dellemc/issues/5).
+option's own description both said it was.
+
+`host-group` (PowerStore only) is the one that uses an array host group. It
+keeps the per-node host objects, so the array still reports per-node
+connectivity, and puts them in a group named `pve-<cluster>-cluster`, so one
+mapping reaches every node.
+
+**A host already in another group is left there.** A host belongs to at most
+one host group, and a host in a group is mapped *through* that group, so
+moving it would take away every volume that group maps to the node. The plugin
+reports it once and carries on mapping through the existing group, which
+works. Moving it is an operator's decision, because that host can serve
+Proxmox or the other workload, not both.
+
+Removing a node from the group is never done automatically, and only groups
+this plugin created are ever deleted. Existing per-host mappings are left
+alone: new volumes go through the group, and moving the old ones is a
+deliberate act rather than something an upgrade does to a running cluster.
 
 ## Verifying a configuration
 

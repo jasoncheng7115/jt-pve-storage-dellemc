@@ -39,7 +39,15 @@ is($N->encode_base_snapshot_name('pve-ps1-100-disk0'),
     'pve-ps1-100-disk0.pve-base', 'base snapshot name');
 is($N->encode_host_name('mycluster', 'node1'), 'pve-mycluster-node1', 'host name');
 is($N->encode_host_name('mycluster'), 'pve-mycluster-shared', 'shared host name');
-is($N->encode_host_group_name('mycluster'), 'pve-mycluster-shared', 'host group name');
+# The host group must not be named the same as the SHARED-mode host object,
+# which is what the previous definition of this did: both came out as
+# 'pve-<cluster>-shared', one naming a host and one a host group. That
+# definition was also dead - only this test called it - and it dated from the
+# belief, corrected in 0.8.22, that shared mode creates a host group.
+is($N->encode_host_group_name('mycluster'), 'pve-mycluster-cluster',
+    'host group name');
+isnt($N->encode_host_group_name('mycluster'), $N->encode_host_name('mycluster', undef),
+    'and it differs from the shared-mode HOST name, which is a different object');
 is($N->encode_host_name(undef, 'node1'), 'pve-pve-node1', 'host name defaults cluster to pve');
 
 # ---------------------------------------------------------------------------

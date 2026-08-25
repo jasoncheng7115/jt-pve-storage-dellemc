@@ -35,6 +35,7 @@ BEGIN {
 }
 
 use PVE::Storage::Custom::DellPowerStorePlugin;
+use PVE::Storage::Custom::DellPowerVaultPlugin;
 
 my $P = 'PVE::Storage::Custom::DellPowerStorePlugin';
 my $BASE = 'PVE::Storage::Custom::DellEMC::Common::BlockBase';
@@ -562,7 +563,7 @@ SKIP: {
     ok($P->_vg_is_ours({ description => $P->_vg_description('ps1', 104) }),
         'a group this plugin created is recognised');
     ok(!$P->_vg_is_ours({ description => 'Finance VMs, do not touch' }),
-        'an operator\x27s own group is not');
+        "an operator's own group is not");
     ok(!$P->_vg_is_ours({ name => 'pve-ps1-104-vg' }),
         'and a matching NAME alone proves nothing - lesson 40');
     ok(!$P->_vg_is_ours(undef), 'nothing at all is not ours either');
@@ -748,7 +749,7 @@ my $OURS = { id => 'vg-1', name => 'pve-ps1-104-vg',
     local *PVE::Storage::Custom::DellPowerStorePlugin::_api = sub { $api };
 
     is($P->_vg_resolve_id({}, 'ps1', 'pve-ps1-104-disk0'), 'vg-1',
-        'losing the race to create the group finds the winner\x27s, because'
+        "losing the race to create the group finds the winner's, because"
       . ' the lookup and the create are both inside the retry (rule 22)');
 }
 
@@ -846,7 +847,7 @@ my $MINE    = { id => 'vg-mine',  name => 'pve-ps1-104-vg',
     my $touched = $P->_vg_release({}, 'ps1', 'pve-ps1-104-disk0', 'v-1');
 
     is_deeply($api->{removed}, [],
-        'moving a volume between VMs leaves an operator\x27s own group alone');
+        "moving a volume between VMs leaves an operator's own group alone");
     is_deeply($touched, [], '... and reports nothing to reap');
 }
 
@@ -888,6 +889,163 @@ my $MINE    = { id => 'vg-mine',  name => 'pve-ps1-104-vg',
     is_deeply($touched, [], 'an unreadable membership removes nothing');
     is_deeply($api->{removed}, [], '... and strips no group on a guess');
     ok(scalar(grep { /membership/ } @warnings), '... and says so');
+}
+
+# ---------------------------------------------------------------------------
+# Host groups (issue #5)
+#
+# A host belongs to AT MOST ONE host group - the host object carries
+# 'host_group_id', singular, where a volume carries 'volume_groups', a list -
+# and a host in a group is mapped THROUGH that group. So moving a host between
+# groups takes away every volume the old group was mapping to it, and the move
+# is not even atomic. Everything below is that rule.
+# ---------------------------------------------------------------------------
+
+{
+    package Test::HgApi;
+    sub new { my ($c,%a)=@_; bless { added => [], created => [], removed => [], %a }, $c }
+    sub host_get_by_name { return $_[0]->{host} }
+    sub host_group_get {
+        my ($self, $id) = @_;
+        die "the array is not answering\n" if $self->{unreachable};
+        return $self->{groups}{$id};
+    }
+    sub host_group_get_by_name {
+        my ($self, $name) = @_;
+        die "the array is not answering\n" if $self->{unreachable};
+        return $self->{by_name}{$name};
+    }
+    sub host_group_create {
+        my ($self, $name, $ids, %o) = @_;
+        push @{ $self->{created} }, { name => $name, hosts => $ids, %o };
+        return 'hg-new';
+    }
+    sub host_group_add_hosts {
+        my ($self, $id, $ids) = @_;
+        push @{ $self->{added} }, { group => $id, hosts => $ids };
+        return 1;
+    }
+    sub host_group_remove_hosts {
+        my ($self, $id, $ids) = @_;
+        push @{ $self->{removed} }, { group => $id, hosts => $ids };
+        return 1;
+    }
+}
+
+my $HG_SCFG = { 'dell-cluster-name' => 'c1', 'dell-host-mode' => 'host-group' };
+
+# 1. In no group: ours to create and join.
+{
+    no warnings 'redefine', 'once';
+    my $api = Test::HgApi->new(host => { id => 'h-1', name => 'pve-c1-n1' });
+    local *PVE::Storage::Custom::DellPowerStorePlugin::_api = sub { $api };
+
+    my $id = $P->_hg_ensure_member($HG_SCFG, 'ps1', 'pve-c1-n1');
+
+    is($id, 'hg-new', 'a host in no group gets our group');
+    is(scalar @{ $api->{created} }, 1, 'the group is created once');
+    is($api->{created}[0]{name}, 'pve-c1-cluster',
+        'named after the cluster, not the storage: a node is in one cluster');
+    like($api->{created}[0]{description}, qr/\Q[pve-dellemc-cluster]\E/,
+        'and carries the ownership marker this plugin wrote');
+    is_deeply($api->{removed}, [],
+        'nothing is removed from anything');
+}
+
+# 2. THE ONE THAT MATTERS. Already in somebody else's group: never moved.
+{
+    no warnings 'redefine', 'once';
+    my $api = Test::HgApi->new(
+        host   => { id => 'h-1', name => 'pve-c1-n1' },
+        groups => { 'hg-theirs' => { id => 'hg-theirs', name => 'vmware-cluster',
+                                     description => 'ESXi hosts' } },
+    );
+    local *PVE::Storage::Custom::DellPowerStorePlugin::_api = sub { $api };
+    my @warnings;
+    local $SIG{__WARN__} = sub { push @warnings, $_[0] };
+
+    # The host reports the foreign group.
+    local *PVE::Storage::Custom::DellPowerStorePlugin::_host_identity =
+        sub { return ('h-1', 'hg-theirs') };
+
+    my $id = $P->_hg_ensure_member($HG_SCFG, 'ps1', 'pve-c1-n1');
+
+    is($id, 'hg-theirs', 'the foreign group is reported back, and used');
+    is_deeply($api->{removed}, [],
+        'the host is NEVER removed from a group this plugin did not create')
+        or diag('removing it takes away every volume that group maps to the'
+              . " node, which may be somebody else's production storage");
+    is_deeply($api->{created}, [], '... and no group of ours is created for it');
+    is_deeply($api->{added}, [], '... and it is not added anywhere');
+    ok(scalar(grep { /left there|at most one/ } @warnings),
+        '... and the operator is told why, once');
+}
+
+# 3. Already in ours: nothing happens at all.
+{
+    no warnings 'redefine', 'once';
+    my $api = Test::HgApi->new(
+        host   => { id => 'h-1', name => 'pve-c1-n1' },
+        groups => { 'hg-ours' => { id => 'hg-ours', name => 'pve-c1-cluster',
+            description => 'Proxmox VE cluster c1 [pve-dellemc-cluster]' } },
+    );
+    local *PVE::Storage::Custom::DellPowerStorePlugin::_api = sub { $api };
+    local *PVE::Storage::Custom::DellPowerStorePlugin::_host_identity =
+        sub { return ('h-1', 'hg-ours') };
+
+    my $id = $P->_hg_ensure_member($HG_SCFG, 'ps1', 'pve-c1-n1');
+    is($id, 'hg-ours', 'a host already in our group stays put');
+    is_deeply($api->{created}, [], 'nothing is created');
+    is_deeply($api->{added}, [], 'nothing is added');
+}
+
+# 4. The array cannot be asked which group the host is in. Doing nothing is
+#    right: the alternative is deciding it is not ours and adding the host
+#    somewhere, which is the move this design exists to avoid.
+{
+    no warnings 'redefine', 'once';
+    my $api = Test::HgApi->new(host => { id => 'h-1' }, unreachable => 1);
+    local *PVE::Storage::Custom::DellPowerStorePlugin::_api = sub { $api };
+    local *PVE::Storage::Custom::DellPowerStorePlugin::_host_identity =
+        sub { return ('h-1', 'hg-unknown') };
+
+    my $id = $P->_hg_ensure_member($HG_SCFG, 'ps1', 'pve-c1-n1');
+
+    is($id, undef, 'an unreadable group yields no answer');
+    is_deeply($api->{removed}, [], '... and nothing is moved on a guess');
+    is_deeply($api->{created}, [], '... and nothing is created');
+}
+
+# 5. A second node racing for the same group finds the winner's.
+{
+    no warnings 'redefine', 'once';
+    my $api = Test::HgApi->new(
+        host    => { id => 'h-2', name => 'pve-c1-n2' },
+        by_name => { 'pve-c1-cluster' => { id => 'hg-ours', name => 'pve-c1-cluster' } },
+    );
+    local *PVE::Storage::Custom::DellPowerStorePlugin::_api = sub { $api };
+    local *PVE::Storage::Custom::DellPowerStorePlugin::_host_identity =
+        sub { return ('h-2', undef) };
+
+    my $id = $P->_hg_ensure_member($HG_SCFG, 'ps1', 'pve-c1-n2');
+    is($id, 'hg-ours', 'the second node joins the existing group');
+    is_deeply($api->{created}, [], '... without creating a second one');
+    is($api->{added}[0]{group}, 'hg-ours', '... by being added to it');
+}
+
+# The mode is refused on families that do not implement it. dell-host-mode is
+# declared once for every type, because SectionConfig dies on a duplicate
+# property name, so the enum lists every mode any family supports (lesson 41).
+{
+    ok(!eval { PVE::Storage::Custom::DellPowerVaultPlugin->_check_host_mode(
+            'me5', { 'dell-host-mode' => 'host-group' }); 1 },
+        'host-group is refused on PowerVault, which does not implement it');
+    like($@, qr/not implemented for this family/, '... saying so plainly');
+
+    ok(eval { $P->_check_host_mode('ps1', { 'dell-host-mode' => 'host-group' }); 1 },
+        'and accepted on PowerStore, which does');
+    ok(eval { $P->_check_host_mode('ps1', { 'dell-host-mode' => 'per-node' }); 1 },
+        'per-node stays valid everywhere');
 }
 
 done_testing();

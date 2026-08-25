@@ -44,6 +44,7 @@ sub max_volume_name_length   { 63 }
 sub max_snapshot_name_length { 63 }
 sub max_host_name_length     { 63 }
 sub max_volume_group_name_length { 63 }
+sub max_host_group_name_length   { 63 }
 
 # How much of the storeid may appear inside an object name. Keeping this
 # short leaves room for the vmid and the object kind within the volume name
@@ -157,6 +158,26 @@ sub encode_volume_name {
     die "diskid is required\n"  unless defined $diskid;
 
     return $class->volume_prefix($storeid) . "${vmid}-disk${diskid}";
+}
+
+# The cluster's host group, when 'dell-host-mode host-group' is on.
+#
+# Named after the CLUSTER, not the storage: a host object represents a node and
+# a node is in one cluster, so two storages on the same array that serve the
+# same cluster want the same group. That is the opposite of the volume group
+# rule, where the name is per storage because a volume belongs to a storage.
+sub encode_host_group_name {
+    my ($class, $cluster) = @_;
+
+    die "cluster name is required\n" unless defined $cluster && length $cluster;
+
+    my $name = 'pve-' . $class->sanitize($cluster, 20) . '-cluster';
+
+    die "The host group name '$name' does not fit this array's limit of "
+      . $class->max_host_group_name_length . " characters\n"
+        if length($name) > $class->max_host_group_name_length;
+
+    return $name;
 }
 
 # The per-VM volume group, when 'pstore-volume-group-per-vm' is on.
@@ -382,13 +403,6 @@ sub encode_host_name {
 
     my $n = $class->sanitize($node, $max);
     return "pve-${c}-${n}";
-}
-
-# Host group used when several nodes share one mapping
-# (dell-host-mode shared).
-sub encode_host_group_name {
-    my ($class, $cluster) = @_;
-    return $class->encode_host_name($cluster, undef);
 }
 
 # ---------------------------------------------------------------------------

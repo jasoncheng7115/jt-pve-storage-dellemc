@@ -346,6 +346,7 @@ host、加入 initiator、metrics/generate）：每一個線上鍵都與 Dell �
 | `wwn` | 主機將看到的 WWID | 範例中是 `naa.68ccf09800ac8ab0e2506d99bee29e40` —— 正是本外掛會轉換的 `naa.` 形式。但仍**未與主機自己的 `scsi_id` 比對過**，那才是該確認的事 |
 | `state`、`type` | 是否可用、Primary 或 Snapshot | 範例中是 `Ready` 與 `Primary`，正是本外掛送出的過濾值 |
 | `protection_data.source_id` | 精簡複製是從哪個快照來的 | 範例的 `protection_data` 帶有 `source_id`、`parent_id`、`family_id` |
+| host 上的 `host_group_id`、`hosts`、`host_ids`、`add_host_ids`、`remove_host_ids` | host group，供 `dell-host-mode host-group` 使用。**host 的 `host_group_id` 是單數，而磁碟區的 `volume_groups` 是清單**，這正是「一個 host 最多屬於一個群組」的依據；在 Dell 自己的用戶端裡，`add_host_ids` 與 `remove_host_ids` 在同一次 PATCH 中互斥，所以群組之間的搬移不是原子操作。欄位名稱讀自 `python-powerstore` 的 `modify_host_group` |
 | `volumes`、`volume_groups`、`protection_policy_id`、`is_write_order_consistent` | volume group，供 `pstore-volume-group-per-vm` 使用。`volume_groups` 是讀在**磁碟區**上的，用來在刪除前找出它實際所屬的群組，因為**PowerStore 會拒絕刪除仍是群組成員的磁碟區**（已在客戶的儲存伺服器上確認，issue #3）| 這些名稱取自 Dell 自己的 `volumegroup` ansible 模組。**成員的快照會不會出現在 `volumes` 裡尚未驗證**，因此「群組是否為空」的判斷只計算 `type` 為 `Primary` 的成員，兩種答案都安全 |
 | `creation_timestamp` | 快照時間 | 範例是 `2022-01-06T05:41:59.381459+00:00` —— 小數秒與明確的時區位移，兩者都已處理 |
 | `appliance_id` | volume 位於哪一台 appliance | 範例中有 |

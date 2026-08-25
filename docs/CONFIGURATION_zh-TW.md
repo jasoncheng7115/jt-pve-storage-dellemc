@@ -13,7 +13,7 @@ English: [CONFIGURATION.md](CONFIGURATION.md)
 | `dell-password` | string | 是 | — | REST API 密碼 |
 | `dell-ssl-verify` | boolean | 否 | `0` | 是否驗證儲存伺服器的 TLS 憑證 |
 | `dell-protocol` | `iscsi` \| `fc` | 否 | `iscsi` | SAN 協定 |
-| `dell-host-mode` | `per-node` \| `shared` | 否 | `per-node` | 每個節點一個 host 物件，或整個叢集共用一個 |
+| `dell-host-mode` | `per-node` \| `shared` \| `host-group` | 否 | `per-node` | 每個節點一個 host 物件、整個叢集共用一個，或是把各節點的 host 放進儲存伺服器的 host group（僅 PowerStore）|
 | `dell-cluster-name` | string | 否 | `pve` | host 物件命名所使用的叢集名稱 |
 | `dell-device-timeout` | 10–300 | 否 | `60` | 等待 volume 裝置出現的秒數 |
 | `dell-portal-probe-timeout` | 0–30 | 否 | `2` | 每個 iSCSI portal 的 TCP 預檢秒數，0 表示停用 |
@@ -195,7 +195,13 @@ PVE 大約每十秒輪詢一次所有儲存，而且是**依序**進行。一個
 
 `shared` 則為整個叢集註冊**一個 host 物件**，並把每一台節點的 initiator 都放進去。儲存伺服器上的物件較少，但儲存伺服器就無法分辨某條路徑屬於哪一台節點。
 
-它**不是**儲存伺服器上的 host group，而在 0.8.22 之前，本文件與這個選項自己的說明都寫成了 host group。本外掛不會建立 host group，但它會**沿用**已經存在的：一個已經屬於某個群組的 host，只能透過該群組來對應，所以如果你自己建好群組、把各節點的 host 放進去，一次對應就能涵蓋整個叢集，而外掛會跟著走。由外掛建立與維護該群組則是 [issue #5](https://github.com/jasoncheng7115/jt-pve-storage-dellemc/issues/5)。
+它**不是**儲存伺服器上的 host group，而在 0.8.22 之前，本文件與這個選項自己的說明都寫成了 host group。
+
+`host-group`（僅 PowerStore）才是真正使用儲存伺服器 host group 的模式。它保留各節點的 host 物件，所以儲存伺服器仍然能回報每台節點的連線狀態，並把它們放進一個名為 `pve-<叢集>-cluster` 的群組，讓一次對應就能觸及每一台節點。
+
+**已經在別的群組裡的 host，會被留在原處。** 一個 host 最多只能屬於一個 host group，而位於群組中的 host 是**透過**該群組被對應的，所以搬動它會拿走那個群組對應給該節點的每一個磁碟區。外掛只會回報一次，然後繼續透過既有的群組來對應，而那是可行的。要不要搬動是操作者的決定，因為那台 host 只能服務 Proxmox 或另一個工作負載，不能兩者兼具。
+
+把節點從群組中移除，永遠不會自動發生；而且只有外掛自己建立的群組才可能被刪除。既有的逐 host 對應也會被保留：新的磁碟區走群組，搬移舊的則是一個刻意的動作，而不是升級時對運作中叢集所做的事。
 
 ## 驗證設定
 
