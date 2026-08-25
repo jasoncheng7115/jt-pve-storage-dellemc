@@ -170,6 +170,34 @@ real hardware, and each is cheap to repeat.
 | 12 | Snapshot a RUNNING VM with the guest agent enabled, timing it | the guest is unresponsive for well under a second, not for the length of a config backup. `qm snapshot` returning is not the measure; ping the guest through it | issue #2 |
 | 13 | Delete a volume in PowerStore Manager, leaving it in the recycle bin, then create a VM with that VMID | the allocation succeeds on the next disk id. It must not retry the same name, and any failure must name the recycle bin rather than blaming other nodes | issue #9 |
 | 14 | Migrate a UEFI VM onto the storage | the EFI disk is created. It is 540672 bytes, which is below PowerStore's 1 MiB minimum and already 8 KiB aligned, so only the floor saves it | issue #1 |
+| 15 | `pvesm add` a storage on a node that is in a cluster, without `--dell-cluster-name` | the storage config comes back carrying the cluster's real name from `corosync.conf`. Then `pvesm set` something unrelated and confirm the name does **not** change: re-deriving it would make the storage stop finding its host object | issue #4 |
+| 16 | The same on a standalone node, which has no `corosync.conf` | the storage is added and falls back to `pve`. This must not be an error | issue #4 |
+
+#### 4.1b With `dell-host-mode host-group`
+
+The dangerous case is the third one. It cannot be exercised without an array
+because the whole question is what the array reports about hosts it did not
+get from this plugin.
+
+| # | Test | Pass criteria |
+|---|---|---|
+| 17 | Activate on a node whose host is in **no** group | a group `pve-<cluster>-cluster` appears, this node's host is in it, and its description carries the ownership marker |
+| 18 | Activate the **second** node | it joins the same group. No second group is created, and both nodes' hosts are members |
+| 19 | Create a disk while the group exists | the mapping is made to the GROUP, not the host. `show` the volume in PowerStore Manager and confirm one mapping covers both nodes |
+| 20 | **Put a node's host into a group of your own first**, then activate | the host is **left in your group**, nothing is removed from it, no group of ours is created for that host, and the journal says so once. Volumes are still mapped, through your group | 
+| 21 | Delete the last volume, then remove the storage | the group this plugin created may be removed; a group **you** created is never touched, even if every host in it is ours |
+| 22 | Take the array's management interface down, then activate | activation still succeeds and volumes still map per host. A grouping step that cannot complete must never fail provisioning |
+
+Test 20 is the one to run first if time is short. Getting it wrong takes a
+host out of a group that may be mapping somebody else's production storage to
+it, and the plugin has no way to put that back.
+
+Tests 17, 20 and 22 can be rehearsed without an array using the fake in
+`t/fake/powerstore.py`, which enforces the one-group-per-host rule the real
+array does. That is not a substitute for the array — it proves what the plugin
+sends and how it reacts to a refusal, not what a PowerStore actually does with
+the request — but it is how these paths were checked before release, and it
+catches a regression in the dangerous direction immediately.
 
 ### 4.2 Per family, additionally
 
