@@ -5,6 +5,30 @@ English version: [CHANGELOG.md](CHANGELOG.md)
 
 版本規則：小版號逐次遞增，到 .99 才進位到次版號 —— 0.7.0、0.7.1、……、0.7.99，然後 0.8.0。所有 0.x 版本都屬於預先發行版；1.0.0 的門檻是實機測試通過。
 
+## [0.8.22~beta1] - 2026-08-25
+
+### 已修正
+- **`dell-host-mode shared`被描述成一件它並不是的事。** 這個選項自己的 schema 說明與
+  `docs/CONFIGURATION.md` 都寫著它「為整個叢集註冊一個 host group」。實際上它註冊的是
+  **一個 host 物件**，並把每一台節點的 initiator 都放進去。在這幾種儲存伺服器上，host
+  與 host group 是不同的物件、對應行為也不同，所以這是一個「宣稱了卻沒有東西支撐」的
+  能力，與 0.8.17 修正的 SAS 宣稱是同一個形狀。
+
+  由 **Alexander Gott（[@alexandergott-afk](https://github.com/alexandergott-afk)）**
+  在 [issue #5](https://github.com/jasoncheng7115/jt-pve-storage-dellemc/issues/5)
+  中指出，他對行為的判讀是正確的，錯的是文件。
+
+- 文件現在也寫上了**今天就已經可用**的部分，那正是先前的錯誤描述所遮蓋的：本外掛不會
+  建立儲存伺服器上的 host group，但它會沿用已經存在的 —— 因為一個已屬於某群組的 host，
+  只能透過該群組來對應。操作者只要自己在 PowerStore Manager 建好群組、把各節點的 host
+  放進去，就已經能用一次對應涵蓋整個叢集，而外掛會跟著走。由外掛建立與維護該群組是
+  issue #5，仍然開著。
+
+### 測試
+- `t/06-blockbase.t` 改為把 shared 模式實際命名出來的東西**釘住行為**，而不是去檢查
+  散文。一個試圖讀懂文件語意的測試，最後會變成在猜測意圖 —— 0.8.18 加入的家族數量
+  guard 在收窄之前就犯過這個錯。
+
 ## [0.8.21~beta1] - 2026-08-24
 
 ### 已修正

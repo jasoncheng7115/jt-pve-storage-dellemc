@@ -1976,4 +1976,41 @@ SKIP: {
       . ' and the only one worth retrying');
 }
 
+# ---------------------------------------------------------------------------
+# What 'dell-host-mode shared' actually registers
+#
+# The option's own description and docs/CONFIGURATION.md both said it
+# "registers a single host group for the whole cluster" until 0.8.22. It does
+# not. It registers one HOST OBJECT and puts every node's initiators in it,
+# which is a different thing on every one of these arrays, and the reporter of
+# issue #5 read the behaviour correctly while the documentation did not.
+#
+# Pinned here as behaviour rather than guarded as prose: a test that reads
+# documentation for meaning ends up guessing at intent, and the last one of
+# those flagged four correct sentences before it was narrowed.
+# ---------------------------------------------------------------------------
+
+{
+    my $shared   = { 'dell-cluster-name' => 'c1', 'dell-host-mode' => 'shared' };
+    my $per_node = { 'dell-cluster-name' => 'c1', 'dell-host-mode' => 'per-node' };
+
+    my $shared_name = Test::Plugin->_generated_host_name($shared);
+    my $node_name   = Test::Plugin->_generated_host_name($per_node);
+
+    isnt($shared_name, $node_name,
+        'shared and per-node name different host objects');
+    unlike($shared_name, qr/\Q@{[ PVE::INotify::nodename() ]}\E/,
+        'the shared name carries no node name, because it is one object for'
+      . ' the whole cluster');
+
+    # And it is a HOST name, built by the same encoder as the per-node one.
+    # There is no host-group creation anywhere in the plugin; a group that
+    # already exists is mapped through, which is a different thing again.
+    is($shared_name, Test::Plugin->naming->encode_host_name('c1', undef),
+        'it is a host object, not an array host group');
+
+    ok(!Test::Plugin->can('_array_create_host_group'),
+        'nothing here creates a host group, whatever the docs used to say');
+}
+
 done_testing();

@@ -239,8 +239,17 @@ periodic safety net for volumes mapped out of band.
 migration does not have to remap anything first, and the array can report
 per-node connectivity.
 
-`shared` registers one host group for the whole cluster. Fewer objects on the
-array, but the array can no longer tell you which node a path belongs to.
+`shared` registers one **host object** for the whole cluster and puts every
+node's initiators into it. Fewer objects on the array, but the array can no
+longer tell you which node a path belongs to.
+
+It is **not** an array host group, and until 0.8.22 this document and the
+option's own description both said it was. The plugin does not create host
+groups. It does map through one that already exists: a host that is a member
+of a group can only be mapped through the group, so if you build the group
+yourself and put the per-node hosts in it, one mapping covers the cluster and
+the plugin follows it. Creating and maintaining that group is
+[issue #5](https://github.com/jasoncheng7115/jt-pve-storage-dellemc/issues/5).
 
 ## Verifying a configuration
 

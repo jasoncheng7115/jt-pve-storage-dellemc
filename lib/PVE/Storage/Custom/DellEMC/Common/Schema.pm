@@ -58,7 +58,11 @@ sub common_properties {
             description => "How host objects are created on the array."
                 . " 'per-node' registers one host per PVE node, which is what"
                 . " lets the array report per-node connectivity. 'shared'"
-                . " registers a single host group for the whole cluster.",
+                . " registers a SINGLE HOST OBJECT for the whole cluster, with"
+                . " every node's initiators in it. It is not an array host"
+                . " GROUP: this plugin does not create those, though it does"
+                . " map through one that already exists, because a host in a"
+                . " group can only be mapped through the group.",
             type => 'string',
             enum => ['per-node', 'shared'],
             default => 'per-node',

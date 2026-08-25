@@ -1,3 +1,23 @@
+jt-pve-storage-dellemc (0.8.22~beta1-1) unstable; urgency=low
+
+  * BETA RELEASE. Not for production use.
+  * Corrected: 'dell-host-mode shared' was described, in the option's own
+    schema text and in docs/CONFIGURATION.md, as registering "a single host
+    group for the whole cluster". It does not. It registers one HOST OBJECT
+    and puts every node's initiators into it, which is a different thing on
+    every one of these arrays. Raised by Alexander Gott (@alexandergott-afk)
+    in issue #5, who read the behaviour correctly while the documentation did
+    not.
+  * The documentation now also says what IS available today: the plugin does
+    not create array host groups, but it does map through one that already
+    exists, because a host that is a member of a group can only be mapped
+    through the group. An operator who builds the group themselves gets one
+    mapping covering the cluster.
+  * t/06-blockbase.t pins the behaviour, rather than guarding the prose: a
+    test that reads documentation for meaning ends up guessing at intent.
+
+ -- Jason Cheng <jason@jason.tools>  Tue, 25 Aug 2026 10:00:00 +0800
+
 jt-pve-storage-dellemc (0.8.21~beta1-1) unstable; urgency=low
 
   * BETA RELEASE. Not for production use.

@@ -7,6 +7,35 @@ Versioning: the patch number increments per release and runs to .99 before
 the minor number moves — 0.7.0, 0.7.1, … 0.7.99, then 0.8.0. Every 0.x
 release is a prerelease; 1.0.0 is the on-hardware test pass.
 
+## [0.8.22~beta1] - 2026-08-25
+
+### Fixed
+- **`dell-host-mode shared` was described as something it is not.** The
+  option's own schema text and `docs/CONFIGURATION.md` both said it "registers
+  a single host group for the whole cluster". It registers one **host object**
+  and puts every node's initiators into it. On these arrays a host and a host
+  group are different objects with different mapping behaviour, so this was a
+  capability described with nothing behind it, the same shape as the SAS claim
+  corrected in 0.8.17.
+
+  Raised by **Alexander Gott ([@alexandergott-afk](https://github.com/alexandergott-afk))**
+  in [issue #5](https://github.com/jasoncheng7115/jt-pve-storage-dellemc/issues/5),
+  who read the behaviour correctly while the documentation did not.
+
+- The documentation now also records what **is** available today, which the
+  wrong description was hiding: the plugin does not create array host groups,
+  but it does map through one that already exists, because a host that is a
+  member of a group can only be mapped through the group. An operator who
+  builds the group in PowerStore Manager and puts the per-node hosts into it
+  already gets one mapping covering the whole cluster, and the plugin follows
+  it. Creating and maintaining that group is issue #5 and remains open.
+
+### Testing
+- `t/06-blockbase.t` pins what shared mode actually names, rather than
+  guarding the prose. A test that reads documentation for meaning ends up
+  guessing at intent, which the family-count guard added in 0.8.18 did before
+  it was narrowed.
+
 ## [0.8.21~beta1] - 2026-08-24
 
 ### Fixed
