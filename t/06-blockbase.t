@@ -2080,4 +2080,67 @@ SKIP: {
               . ' appends to every 422');
 }
 
+# ---------------------------------------------------------------------------
+# A bare sd path is not a multipath map (issue #7)
+#
+# activate_volume checked for an existing device before doing anything
+# expensive, which is right. But get_device_by_wwid falls back to
+# /dev/disk/by-id/scsi-*<wwid>*, and that resolves to a single /dev/sdX when
+# multipathd has no map. Accepting it and returning meant the WWID was never
+# claimed, so under the default 'find_multipaths strict' no map was ever built
+# and the guest ran on ONE PATH with no failover. It all looked fine: the LUN
+# was live, the VM was running, and 'multipath -ll' was empty.
+# ---------------------------------------------------------------------------
+
+{
+    no warnings 'redefine', 'once';
+    my @claimed;
+    my $map_exists = 0;
+
+    local *PVE::Storage::Custom::DellEMC::Common::BlockBase::get_multipath_device =
+        sub { return $map_exists ? '/dev/mapper/3600test' : undef };
+    local *PVE::Storage::Custom::DellEMC::Common::BlockBase::get_device_by_wwid =
+        sub { return $map_exists ? '/dev/mapper/3600test' : '/dev/sdc' };
+    local *PVE::Storage::Custom::DellEMC::Common::BlockBase::multipath_claim_wwid =
+        sub { push @claimed, $_[0]; $map_exists = 1; return 1 };
+    local *PVE::Storage::Custom::DellEMC::Common::BlockBase::is_block_device = sub { 1 };
+
+    Test::Plugin->reset_state();
+    $Test::Plugin::VOLUMES{'pve-t1-100-disk0'} =
+        { size => 1024 * 1024, used => 0, wwid => '3600test' };
+
+    my $scfg = { 'dell-portal' => '10.0.0.1', 'dell-prefix' => 'pve' };
+    my $ok = eval { Test::Plugin->activate_volume('t1', $scfg, 'vm-100-disk-0') };
+
+    is($ok, 1, 'the volume activates');
+    is_deeply(\@claimed, ['3600test'],
+        'a WWID with paths but no map is CLAIMED rather than accepted as-is')
+        or diag('without this the guest runs on one path and multipath -ll is'
+              . ' empty, which is what issue #7 showed');
+}
+
+{
+    no warnings 'redefine', 'once';
+    # When a map is already there, nothing is claimed: this is the fast path
+    # on every VM start and must stay cheap.
+    my @claimed;
+    local *PVE::Storage::Custom::DellEMC::Common::BlockBase::get_multipath_device =
+        sub { '/dev/mapper/3600test' };
+    local *PVE::Storage::Custom::DellEMC::Common::BlockBase::get_device_by_wwid =
+        sub { '/dev/mapper/3600test' };
+    local *PVE::Storage::Custom::DellEMC::Common::BlockBase::multipath_claim_wwid =
+        sub { push @claimed, $_[0]; 1 };
+    local *PVE::Storage::Custom::DellEMC::Common::BlockBase::is_block_device = sub { 1 };
+
+    Test::Plugin->reset_state();
+    $Test::Plugin::VOLUMES{'pve-t1-100-disk0'} =
+        { size => 1024 * 1024, used => 0, wwid => '3600test' };
+
+    my $scfg = { 'dell-portal' => '10.0.0.1', 'dell-prefix' => 'pve' };
+    Test::Plugin->activate_volume('t1', $scfg, 'vm-100-disk-0');
+
+    is_deeply(\@claimed, [],
+        'an existing map is used directly, with no claim and no rescan');
+}
+
 done_testing();

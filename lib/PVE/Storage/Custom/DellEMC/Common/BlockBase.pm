@@ -46,6 +46,7 @@ use PVE::Storage::Custom::DellEMC::Common::Multipath qw(
     device_size_bytes
     multipath_resize_map
     get_multipath_device
+    multipath_claim_wwid
     get_device_by_wwid
     wait_for_multipath_device
     get_multipath_slaves
@@ -2293,8 +2294,51 @@ sub activate_volume {
     # expensive: activate_volume is on the VM start and backup paths, where a
     # host-wide reconfigure churns maps other operations are trying to use.
     {
+        # A MAP is the fast path. A bare sd path is not.
+        #
+        # get_device_by_wwid falls back to /dev/disk/by-id/scsi-*<wwid>* when
+        # multipathd has no map, and that resolves to a single /dev/sdX. This
+        # block used to accept it and return, which meant the claim below never
+        # ran: on a node whose find_multipaths is 'strict' - the Debian and
+        # Proxmox default - no map was ever built, and the guest ran on ONE
+        # PATH with no failover at all. Everything looked fine until that path
+        # dropped. Reported on a PowerStore over FC in issue #7, where the
+        # array showed live LUNs, the VM was running, and 'multipath -ll' was
+        # empty.
+        my $mpath = eval { get_multipath_device($wwid) };
+        if ($mpath && is_block_device($mpath)) {
+            eval { $WWID_STATE->track_wwid($storeid, $wwid) };
+            $class->_reconcile_device_size($scfg, $storeid, $volname,
+                $mpath, $vol);
+            return 1;
+        }
+
+        # Paths but no map. Claim the WWID and give multipathd a moment: under
+        # 'strict' it builds a map only for a WWID in /etc/multipath/wwids, and
+        # nothing else on this path ever writes that entry.
         my $existing = eval { get_device_by_wwid($wwid) };
         if ($existing && is_block_device($existing)) {
+            eval { multipath_claim_wwid($wwid) };
+
+            my $now = eval { get_multipath_device($wwid) };
+            if ($now && is_block_device($now)) {
+                eval { $WWID_STATE->track_wwid($storeid, $wwid) };
+                $class->_reconcile_device_size($scfg, $storeid, $volname,
+                    $now, $vol);
+                return 1;
+            }
+
+            # Still no map. A LUN with a single path legitimately has none, so
+            # this is not fatal and the sd device is used as before - but say
+            # so once, because a multi-path LUN running on one path is a
+            # failover that will not happen.
+            $class->_warn_once($storeid, "nomap-$wwid",
+                "Volume '$volname' is in use through '$existing' with no"
+              . " multipath map on this node. If the array presents more than"
+              . " one path, this guest has no failover: check"
+              . " 'multipath -ll' and that this WWID is in"
+              . " /etc/multipath/wwids.");
+
             eval { $WWID_STATE->track_wwid($storeid, $wwid) };
             $class->_reconcile_device_size($scfg, $storeid, $volname,
                 $existing, $vol);

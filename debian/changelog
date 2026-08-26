@@ -1,3 +1,28 @@
+jt-pve-storage-dellemc (0.8.26~beta1-1) unstable; urgency=critical
+
+  * BETA RELEASE. Not for production use.
+  * Fixed: a guest could run on a SINGLE PATH with no multipath map and no
+    failover, on a node using the default 'find_multipaths strict'.
+    activate_volume checked for an existing device first, which is right, but
+    get_device_by_wwid falls back to /dev/disk/by-id/scsi-*<wwid>* and that
+    resolves to one /dev/sdX when multipathd has no map. Accepting it returned
+    early, so the WWID was never claimed and no map was ever built. Everything
+    looked healthy: the LUN was live, the VM ran, and 'multipath -ll' was
+    empty. A map is now required for the fast path; paths without one are
+    claimed first, and if a map still does not appear the sd device is used as
+    before with a warning, because a single-path LUN legitimately has no map.
+    Found from diagnostics posted by Alexander Gott (@alexandergott-afk) in
+    issue #7.
+  * Fixed: multipath_claim_wwid was called in BlockBase without being
+    imported, so that path died at runtime. perl -c compiles it and
+    t/11-imports.t did not catch it, because its list of helpers covered only
+    CPAN modules and not this project's own exports.
+  * t/11-imports.t now reads @EXPORT_OK from every Common module and checks
+    that a file importing none of them does not call them. It also stops
+    scanning comments as code, which the previous check did too.
+
+ -- Jason Cheng <jason@jason.tools>  Wed, 26 Aug 2026 20:00:00 +0800
+
 jt-pve-storage-dellemc (0.8.25~beta1-1) unstable; urgency=high
 
   * BETA RELEASE. Not for production use.

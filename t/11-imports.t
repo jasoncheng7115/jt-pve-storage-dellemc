@@ -46,6 +46,26 @@ my %NEEDS = (
     timelocal     => 'Time::Local',
 );
 
+# Every name this project's own modules export, and where from. Read from the
+# modules rather than listed here, so a new export is covered the day it is
+# added.
+my %OWN_EXPORTS;
+{
+    my @own;
+    find(sub { push @own, $File::Find::name if /\.pm$/ }, 'lib/PVE/Storage/Custom/DellEMC');
+    for my $mod (@own) {
+        open(my $mh, '<', $mod) or next;
+        my $src = do { local $/; <$mh> };
+        close($mh);
+        my ($pkg) = $src =~ /^package\s+([\w:]+)/m;
+        next unless $pkg;
+        my ($short) = $pkg =~ /([\w]+::[\w]+)\z/;
+        next unless $short;
+        next unless $src =~ /\@EXPORT_OK\s*=\s*qw\(([^)]*)\)/s;
+        $OWN_EXPORTS{$_} = $short for grep { length } split /\s+/, $1;
+    }
+}
+
 my @files;
 find(sub { push @files, $File::Find::name if /\.pm$/ }, 'lib');
 push @files, 'bin/pve-dell-config-get' if -f 'bin/pve-dell-config-get';
@@ -63,12 +83,23 @@ for my $file (sort @files) {
     # Documentation after __END__ is prose, not code.
     $source =~ s/^__END__.*//ms;
 
+    # Nor are comments. This matters more than it looks: these checks find a
+    # call by looking for 'name(' , and this codebase's comments name the
+    # functions they are about, so 'the same categorical rule as
+    # rescan_scsi_hosts() in Multipath.pm' reads as a call from FC.pm.
+    #
+    # Conservative on purpose: a whole-line comment, or one that starts after
+    # whitespace. That leaves $#array and a '#' inside a pattern alone.
+    my $code = $source;
+    $code =~ s/^\s*#.*$//mg;
+    $code =~ s/(?<=\s)#[^\n]*//g;
+
     my @missing;
     for my $sub (sort keys %NEEDS) {
         my $module = $NEEDS{$sub};
 
         # A call, not a definition, a method, or a mention in a comment.
-        next unless $source =~ /(?<![\w:>])\Q$sub\E\s*\(/;
+        next unless $code =~ /(?<![\w:>])\Q$sub\E\s*\(/;
         next if $source =~ /^\s*sub\s+\Q$sub\E\b/m;
 
         # Fully qualified is fine; so is any use of the right module, whether
@@ -77,6 +108,29 @@ for my $file (sort @files) {
         next if $source =~ /^\s*use\s+\Q$module\E\b/m;
 
         push @missing, "$sub() needs 'use $module'";
+    }
+
+    # The project's OWN helpers, which %NEEDS above does not cover and which
+    # are the ones most likely to be missed: there are dozens of them and they
+    # are added far more often than a CPAN import is.
+    #
+    # multipath_claim_wwid was called in BlockBase without its use line and
+    # this test passed, because the list above only knows about CPAN modules.
+    # perl -c compiles the call happily; it dies at runtime, on the path that
+    # builds a multipath map (issue #7).
+    for my $sub (sort keys %OWN_EXPORTS) {
+        my $module = $OWN_EXPORTS{$sub};
+
+        next if $file =~ /\Q$module\E/;            # the module itself
+        next unless $code =~ /(?<![\w:>])\Q$sub\E\s*\(/;
+        next if $source =~ /^\s*sub\s+\Q$sub\E\b/m;
+        next if $code =~ /\Q$sub\E\s*=>/;          # a hash key, not a call
+
+        # Imported by name from the right module, or called fully qualified.
+        next if $source =~ /use\s+[\w:]*\Q$module\E[^;]*?\b\Q$sub\E\b/s;
+        next if $source =~ /\Q$module\E::\Q$sub\E\s*\(/;
+
+        push @missing, "$sub() is used but not imported from $module";
     }
 
     is_deeply(\@missing, [], "$file imports every helper it calls")

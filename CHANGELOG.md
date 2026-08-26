@@ -7,6 +7,46 @@ Versioning: the patch number increments per release and runs to .99 before
 the minor number moves — 0.7.0, 0.7.1, … 0.7.99, then 0.8.0. Every 0.x
 release is a prerelease; 1.0.0 is the on-hardware test pass.
 
+## [0.8.26~beta1] - 2026-08-26
+
+### Fixed
+- **A guest could run on a single path, with no multipath map and no
+  failover.** On a node using the default `find_multipaths strict`, the LUN was
+  live, the VM was running, and `multipath -ll` was empty.
+
+  `activate_volume` checks for an existing device before doing anything
+  expensive, which is right on a path that runs at every VM start. But
+  `get_device_by_wwid` falls back to `/dev/disk/by-id/scsi-*<wwid>*`, and that
+  resolves to a single `/dev/sdX` when multipathd has no map. Accepting it
+  returned early, so the WWID was never claimed, no map was ever built, and
+  nothing looked wrong until a path dropped.
+
+  A **map** is now what qualifies for the fast path. Paths without one are
+  claimed first, and if a map still does not appear the sd device is used as
+  before with a warning — a LUN with a single path legitimately has no map, so
+  this cannot be fatal.
+
+  Found from the diagnostics posted by
+  **Alexander Gott ([@alexandergott-afk](https://github.com/alexandergott-afk))**
+  in [issue #7](https://github.com/jasoncheng7115/jt-pve-storage-dellemc/issues/7):
+  `sg_turs` returning 0 said the LUN was live, and `multipath -ll` returning
+  nothing said no map existed. Neither alone would have located it.
+
+- **`multipath_claim_wwid` was called in `BlockBase` without being imported.**
+  That path died at runtime. `perl -c` compiles a call to an undefined
+  subroutine without complaint, which is why this project has an import guard
+  at all, and the guard did not catch it.
+
+### Testing
+- `t/11-imports.t` now reads `@EXPORT_OK` from every `Common::*` module and
+  checks that a file calling one of those helpers imports it. Its previous
+  list covered CPAN modules only, so the project's own helpers — the ones added
+  most often — were invisible to it.
+- It also stops scanning comments as code. The first run of the extended check
+  reported `rescan_scsi_hosts()` in `FC.pm`, which is a sentence about
+  `Multipath.pm`, not a call. The old check had the same weakness and had
+  simply never met a comment shaped like that.
+
 ## [0.8.25~beta1] - 2026-08-26
 
 ### Fixed

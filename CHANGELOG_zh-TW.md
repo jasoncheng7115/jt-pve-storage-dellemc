@@ -5,6 +5,39 @@ English version: [CHANGELOG.md](CHANGELOG.md)
 
 版本規則：小版號逐次遞增，到 .99 才進位到次版號 —— 0.7.0、0.7.1、……、0.7.99，然後 0.8.0。所有 0.x 版本都屬於預先發行版；1.0.0 的門檻是實機測試通過。
 
+## [0.8.26~beta1] - 2026-08-26
+
+### 已修正
+- **客體可能跑在單一路徑上，沒有 multipath map、也沒有任何備援。** 在使用預設
+  `find_multipaths strict` 的節點上，LUN 是活的、虛擬機在跑，而 `multipath -ll` 是空的。
+
+  `activate_volume` 會先檢查裝置是否已經存在，再決定要不要做昂貴的事 —— 這在每次虛擬機
+  啟動都會經過的路徑上是對的。但 `get_device_by_wwid` 在沒有 map 時會退回
+  `/dev/disk/by-id/scsi-*<wwid>*`，而那會解析成單一的 `/dev/sdX`。接受它就提早返回，
+  於是 WWID 永遠不會被認領、map 永遠不會建立，而在某條路徑掉下來之前，一切看起來都很
+  正常。
+
+  現在能走快速路徑的**必須是 map**。只有路徑而沒有 map 時會先認領；如果 map 仍然沒有
+  出現，就照舊使用那個 sd 裝置並發出警告 —— 因為只有單一路徑的 LUN 本來就不會有 map，
+  所以這不能是致命錯誤。
+
+  這是從 **Alexander Gott（[@alexandergott-afk](https://github.com/alexandergott-afk)）**
+  在 [issue #7](https://github.com/jasoncheng7115/jt-pve-storage-dellemc/issues/7)
+  貼出的診斷資料裡查出來的：`sg_turs` 回傳 0 說明 LUN 是活的，而 `multipath -ll` 沒有
+  輸出說明沒有 map。單看任何一項都定位不到。
+
+- **`multipath_claim_wwid` 在 `BlockBase` 裡被呼叫，卻沒有被匯入。** 那條路徑會在執行期
+  死掉。`perl -c` 對呼叫一個未定義的副程式不會有任何抱怨，這正是本專案有匯入檢查的原因，
+  而那個檢查沒有抓到它。
+
+### 測試
+- `t/11-imports.t` 現在會從每一個 `Common::*` 模組讀取 `@EXPORT_OK`，並檢查有呼叫這些
+  輔助函式的檔案是否確實匯入了它們。它先前的清單只涵蓋 CPAN 模組，所以本專案自己的
+  輔助函式 —— 也就是最常被新增的那一類 —— 對它是完全隱形的。
+- 它同時不再把註解當成程式碼掃描。擴充後的檢查第一次執行時，回報 `FC.pm` 裡的
+  `rescan_scsi_hosts()`，而那是一句在講 `Multipath.pm` 的話，不是呼叫。舊的檢查有同樣的
+  弱點，只是一直沒遇到長成那樣的註解。
+
 ## [0.8.25~beta1] - 2026-08-26
 
 ### 已修正

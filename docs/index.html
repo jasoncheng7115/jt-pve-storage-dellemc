@@ -171,7 +171,7 @@
     <div class="hero__glow"></div>
     <div class="hero__glow-left"></div>
     <div class="hero__content">
-        <div class="hero__badge">v0.8.25~beta1 <span class="hero__badge-sep"></span> MIT License</div>
+        <div class="hero__badge">v0.8.26~beta1 <span class="hero__badge-sep"></span> MIT License</div>
         <h1 class="hero__title">jt-pve-storage-dellemc</h1>
         <p class="hero__project-desc">
             <span class="lang-en">Dell EMC Storage Plugins for Proxmox VE</span>
@@ -1138,8 +1138,8 @@ DellPowerFlexPlugin                  <span class="comment"># no SCSI LUN, no mul
         <span class="lang-zh">驗證狀態</span>
     </h2>
     <p class="section-subtitle">
-        <span class="lang-en">3,382 unit tests run without an array or a device. What they cannot tell you is whether the endpoints exist, whether the field names are right, or whether a device ever appears &mdash; only an array can, and exactly one has.</span>
-        <span class="lang-zh">3,382 個單元測試不需要儲存伺服器或實體裝置即可執行。它們無法告訴你的是：端點是否存在、欄位名稱是否正確、裝置到底會不會出現 &mdash; 那隻有儲存伺服器能回答，而目前只有一台回答過。</span>
+        <span class="lang-en">3,385 unit tests run without an array or a device. What they cannot tell you is whether the endpoints exist, whether the field names are right, or whether a device ever appears &mdash; only an array can, and exactly one has.</span>
+        <span class="lang-zh">3,385 個單元測試不需要儲存伺服器或實體裝置即可執行。它們無法告訴你的是：端點是否存在、欄位名稱是否正確、裝置到底會不會出現 &mdash; 那隻有儲存伺服器能回答，而目前只有一台回答過。</span>
     </p>
 
     <h3>
@@ -1299,6 +1299,15 @@ DellPowerFlexPlugin                  <span class="comment"># no SCSI LUN, no mul
         <span class="lang-en">Changelog</span>
         <span class="lang-zh">變更紀錄</span>
     </h2>
+
+    <div class="changelog-entry">
+        <div class="changelog-version">v0.8.26~beta1</div>
+        <div class="changelog-date">2026-08-26</div>
+        <div class="changelog-summary">
+            <span class="lang-en">A guest could run on a single path with no multipath map and no failover. activate_volume accepted a bare /dev/sdX from the by-id fallback and returned early, so the WWID was never claimed and no map was ever built &mdash; the LUN was live, the VM ran, and multipath -ll was empty. A map is now what qualifies for the fast path. Found from diagnostics posted by Alexander Gott (@alexandergott-afk), issue #7.</span>
+            <span class="lang-zh">客體可能跑在單一路徑上，沒有 multipath map、也沒有備援。activate_volume 接受了 by-id 退路給出的裸 /dev/sdX 就提早返回，於是 WWID 永遠不會被認領、map 永遠不會建立 &mdash; LUN 是活的、虛擬機在跑，而 multipath -ll 是空的。現在能走快速路徑的必須是 map。這是從 Alexander Gott（@alexandergott-afk）在 issue #7 貼出的診斷資料查出來的。</span>
+        </div>
+    </div>
 
     <div class="changelog-entry">
         <div class="changelog-version">v0.8.25~beta1</div>
