@@ -171,7 +171,7 @@
     <div class="hero__glow"></div>
     <div class="hero__glow-left"></div>
     <div class="hero__content">
-        <div class="hero__badge">v0.8.26~beta1 <span class="hero__badge-sep"></span> MIT License</div>
+        <div class="hero__badge">v0.8.27~beta1 <span class="hero__badge-sep"></span> MIT License</div>
         <h1 class="hero__title">jt-pve-storage-dellemc</h1>
         <p class="hero__project-desc">
             <span class="lang-en">Dell EMC Storage Plugins for Proxmox VE</span>
@@ -1138,8 +1138,8 @@ DellPowerFlexPlugin                  <span class="comment"># no SCSI LUN, no mul
         <span class="lang-zh">驗證狀態</span>
     </h2>
     <p class="section-subtitle">
-        <span class="lang-en">3,385 unit tests run without an array or a device. What they cannot tell you is whether the endpoints exist, whether the field names are right, or whether a device ever appears &mdash; only an array can, and exactly one has.</span>
-        <span class="lang-zh">3,385 個單元測試不需要儲存伺服器或實體裝置即可執行。它們無法告訴你的是：端點是否存在、欄位名稱是否正確、裝置到底會不會出現 &mdash; 那隻有儲存伺服器能回答，而目前只有一台回答過。</span>
+        <span class="lang-en">3,391 unit tests run without an array or a device. What they cannot tell you is whether the endpoints exist, whether the field names are right, or whether a device ever appears &mdash; only an array can, and exactly one has.</span>
+        <span class="lang-zh">3,391 個單元測試不需要儲存伺服器或實體裝置即可執行。它們無法告訴你的是：端點是否存在、欄位名稱是否正確、裝置到底會不會出現 &mdash; 那隻有儲存伺服器能回答，而目前只有一台回答過。</span>
     </p>
 
     <h3>
@@ -1299,6 +1299,15 @@ DellPowerFlexPlugin                  <span class="comment"># no SCSI LUN, no mul
         <span class="lang-en">Changelog</span>
         <span class="lang-zh">變更紀錄</span>
     </h2>
+
+    <div class="changelog-entry">
+        <div class="changelog-version">v0.8.27~beta1</div>
+        <div class="changelog-date">2026-08-26</div>
+        <div class="changelog-summary">
+            <span class="lang-en">Adding a storage now asks the array whether its volume-name prefix is already in use, and warns if it is: two Proxmox clusters on one array using the same storage id share a volume namespace, and the existing check cannot see another cluster. A warning, never a refusal, since re-adding a storage that already has volumes is legitimate. The prefix itself is deliberately not changed to carry the cluster name. Raised by Alexander Gott (@alexandergott-afk), issue #4.</span>
+            <span class="lang-zh">加入儲存時會去問儲存伺服器「這個 storage 的磁碟區名稱字首是不是已經有人在用」，有的話就警告：兩個 Proxmox 叢集接到同一台儲存伺服器、又用同一個 storage id 時，會共用同一個命名空間，而既有的檢查看不到另一個叢集。這是警告而非拒絕，因為重新加入一個已有磁碟區的 storage 是正當的。字首本身刻意不改成帶叢集名稱。由 Alexander Gott（@alexandergott-afk）在 issue #4 提出。</span>
+        </div>
+    </div>
 
     <div class="changelog-entry">
         <div class="changelog-version">v0.8.26~beta1</div>

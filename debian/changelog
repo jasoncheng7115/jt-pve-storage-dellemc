@@ -1,3 +1,27 @@
+jt-pve-storage-dellemc (0.8.27~beta1-1) unstable; urgency=medium
+
+  * BETA RELEASE. Not for production use.
+  * Added: when a storage is added, the array is asked whether volumes already
+    carry that storage's volume-name prefix, and the operator is warned if any
+    do. Two Proxmox clusters attached to one array and both using the same
+    storage id share a volume namespace: each lists the other's disks, and
+    deleting from one can delete from the other. The existing check refuses
+    that within a cluster but reads the local storage.cfg, so it cannot see a
+    second cluster. Raised by Alexander Gott (@alexandergott-afk) in issue #4.
+  * A warning, never a refusal: re-adding a storage that already has volumes
+    is legitimate, and only the operator can tell that from a collision. An
+    array that cannot be reached says nothing and does not delay the add,
+    which was measured at 0.64s against an unroutable address.
+  * The volume-name prefix is deliberately NOT changed to include the cluster
+    name. The storage id is the namespace because one cluster may have several
+    storages on one array, so it is needed regardless; adding the cluster
+    would change the pattern and make the plugin stop recognising every volume
+    it has already created. Truncating a long cluster name to fit would also
+    map two different clusters onto one prefix, which restores the collision
+    while appearing to solve it - and detecting that needs this same check.
+
+ -- Jason Cheng <jason@jason.tools>  Wed, 26 Aug 2026 22:00:00 +0800
+
 jt-pve-storage-dellemc (0.8.26~beta1-1) unstable; urgency=critical
 
   * BETA RELEASE. Not for production use.

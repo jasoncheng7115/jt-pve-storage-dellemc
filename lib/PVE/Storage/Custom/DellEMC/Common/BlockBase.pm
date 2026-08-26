@@ -3597,6 +3597,63 @@ sub naming_class_for_check { return $_[0]->naming }
 # The portal is deliberately not part of the comparison. Two arrays today can
 # be one array tomorrow — a portal is an editable property — and renaming a
 # storage that has volumes on it is not.
+# Is another cluster already using this storage's volume-name prefix?
+#
+# _check_prefix_collision below refuses two storages in ONE cluster that would
+# share a prefix, because volume names are built from it and the two would list
+# and delete each other's disks. It reads the local storage.cfg, so it cannot
+# see a second Proxmox cluster attached to the same array - and that is a
+# documented setup, which is where issue #4 started.
+#
+# The namespace is the storage id, not the cluster: one cluster may have
+# several storages on one array, so the storage id is needed regardless, and
+# adding the cluster to volume names would rename the pattern and make the
+# plugin stop recognising every volume it has already created. So the answer is
+# to LOOK rather than to rename: ask the array whether volumes already carry
+# this prefix, at the one moment the storage id is still free to change.
+#
+# A WARNING, never a refusal. Re-adding a storage that already has volumes is
+# entirely legitimate - after a reinstall, or after 'pvesm remove' - and those
+# volumes are the operator's own. Refusing would break the recovery case to
+# guard against the collision case, and only the operator can tell them apart.
+#
+# Best effort throughout: an array that cannot be reached must not stop a
+# storage being added, because 'pvesm add' is also how an operator configures
+# a storage before the fabric is ready.
+sub _check_foreign_volumes {
+    my ($class, $storeid, $scfg) = @_;
+
+    return 1 unless defined $storeid && length $storeid;
+
+    my $prefix = eval { $class->naming->volume_prefix($storeid) };
+    return 1 unless defined $prefix && length $prefix;
+
+    my $volumes = eval {
+        $class->_array_list_volumes($scfg, $storeid, $prefix, status => 1);
+    };
+    return 1 if $@;                       # could not ask; say nothing
+    return 1 unless ref($volumes) eq 'ARRAY' && @$volumes;
+
+    my @names = sort map { $_->{name} } grep { $_->{name} } @$volumes;
+    return 1 unless @names;
+
+    my $shown = join(', ', @names[0 .. ($#names > 4 ? 4 : $#names)]);
+    $shown .= ', and ' . (scalar(@names) - 5) . ' more' if @names > 5;
+
+    warn "Storage '$storeid': the array already has "
+       . scalar(@names) . " volume(s) under this storage's prefix"
+       . " '$prefix': $shown\n"
+       . "  If this storage was added here before, or on another node of this"
+       . " cluster, those are its own volumes and this is expected.\n"
+       . "  If they belong to a DIFFERENT Proxmox cluster using the same"
+       . " storage id, the two clusters now share one volume namespace on this"
+       . " array: each will list the other's disks, and deleting a disk from"
+       . " one can delete it from the other. Remove this storage and add it"
+       . " under an id the other cluster does not use.\n";
+
+    return 1;
+}
+
 sub _check_prefix_collision {
     my ($class, $storeid, $scfg) = @_;
 
@@ -3667,6 +3724,11 @@ sub on_add_hook {
     $class->_check_protocol($storeid, $scfg);
     $class->_check_host_mode($storeid, $scfg);
     $class->_check_prefix_collision($storeid, $scfg);
+
+    # After the refusals, never before: this one talks to the array, and
+    # nothing may change node state or spend a round trip until every check
+    # that could reject the storage has passed (lesson 59).
+    eval { $class->_check_foreign_volumes($storeid, $scfg) };
 
     # Resolve the cluster name once, HERE, and write it into the storage
     # configuration. PVE hands this the hash it is about to write out, so a key

@@ -7,6 +7,44 @@ Versioning: the patch number increments per release and runs to .99 before
 the minor number moves — 0.7.0, 0.7.1, … 0.7.99, then 0.8.0. Every 0.x
 release is a prerelease; 1.0.0 is the on-hardware test pass.
 
+## [0.8.27~beta1] - 2026-08-26
+
+### Added
+- **A storage being added now asks the array whether its volume-name prefix is
+  already in use**, and warns if it is.
+
+  Two Proxmox clusters attached to one array, both with a storage called
+  `ps001`, share a volume namespace: every name is built from the storage id,
+  so each cluster lists the other's disks and deleting from one can delete from
+  the other. The existing check refuses exactly that within a cluster, but it
+  reads the local `storage.cfg` and cannot see a second cluster.
+
+  Raised by **Alexander Gott ([@alexandergott-afk](https://github.com/alexandergott-afk))**
+  in [issue #4](https://github.com/jasoncheng7115/jt-pve-storage-dellemc/issues/4).
+
+  It is a **warning, never a refusal**. Re-adding a storage that already has
+  volumes is legitimate, after a reinstall or a `pvesm remove`, and only the
+  operator can tell that from a collision. An array that cannot be reached says
+  nothing and does not delay the add: `pvesm add` is also how a storage is
+  configured before the fabric is ready, measured at 0.64s against an
+  unroutable address.
+
+### Not changed, deliberately
+- **The volume-name prefix does not include the cluster name**, which was the
+  first thing the report asked for. Three reasons, and the third is the one
+  that decides it:
+
+  - The storage id is the namespace because **one cluster may have several
+    storages on one array**, so it is required regardless. The cluster name
+    would be an addition, not a replacement.
+  - Changing the pattern would make the plugin **stop recognising every volume
+    it has already created**. An upgrade would orphan every disk on the array.
+  - Truncating a long cluster name to fit, which is what the tight families
+    would need — PowerVault leaves 4 characters, PowerFlex 4 — maps
+    `production-a` and `production-b` onto one prefix. That **restores the
+    collision while appearing to solve it**, which is worse than not having it,
+    and detecting it needs exactly the check added above.
+
 ## [0.8.26~beta1] - 2026-08-26
 
 ### Fixed

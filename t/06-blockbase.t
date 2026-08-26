@@ -2143,4 +2143,66 @@ SKIP: {
         'an existing map is used directly, with no claim and no rescan');
 }
 
+# ---------------------------------------------------------------------------
+# Another cluster using the same storage id (issue #4)
+#
+# _check_prefix_collision refuses two storages in ONE cluster that would share
+# a volume-name prefix. It reads the local storage.cfg, so it cannot see a
+# second Proxmox cluster on the same array - and two clusters both calling a
+# storage 'ps001' share every volume name, each listing the other's disks.
+#
+# The namespace is the storage id and cannot become the cluster name: one
+# cluster may have several storages on one array, so the id is needed anyway,
+# and changing the pattern would make the plugin stop recognising every volume
+# it has already created. So this looks instead of renaming.
+# ---------------------------------------------------------------------------
+
+{
+    Test::Plugin->reset_state();
+    my $scfg = { 'dell-portal' => '10.0.0.1' };
+
+    # Volumes already on the array under this storage's prefix.
+    $Test::Plugin::VOLUMES{'pve-t1-100-disk0'} = { size => 1024, used => 0 };
+    $Test::Plugin::VOLUMES{'pve-t1-205-disk3'} = { size => 1024, used => 0 };
+
+    my @warnings;
+    local $SIG{__WARN__} = sub { push @warnings, $_[0] };
+
+    my $ok = eval { Test::Plugin->_check_foreign_volumes('t1', $scfg); 1 };
+
+    is($ok, 1, 'existing volumes under our prefix are never a refusal')
+        or diag('re-adding a storage that already has volumes is legitimate,'
+              . ' and refusing would break recovery to guard a collision');
+
+    my $said = join('', @warnings);
+    like($said, qr/\Qpve-t1-100-disk0\E/, 'the volumes found are named');
+    like($said, qr/DIFFERENT Proxmox cluster/,
+        'and the collision case is spelled out, since only the operator can'
+      . ' tell it from a re-add');
+}
+
+{
+    # Nothing there: silence. This runs on every pvesm add, and a warning on
+    # the ordinary case would train people to ignore it.
+    Test::Plugin->reset_state();
+    my @warnings;
+    local $SIG{__WARN__} = sub { push @warnings, $_[0] };
+
+    Test::Plugin->_check_foreign_volumes('t1', { 'dell-portal' => '10.0.0.1' });
+    is_deeply(\@warnings, [], 'an array with no volumes of ours says nothing');
+}
+
+{
+    # The array cannot be asked. pvesm add is also how a storage is configured
+    # before the fabric is ready, so this must not fail or complain.
+    no warnings 'redefine';
+    local *Test::Plugin::_array_list_volumes = sub { die "not answering\n" };
+    my @warnings;
+    local $SIG{__WARN__} = sub { push @warnings, $_[0] };
+
+    my $ok = eval { Test::Plugin->_check_foreign_volumes('t1', {}); 1 };
+    is($ok, 1, 'an unreachable array does not stop a storage being added');
+    is_deeply(\@warnings, [], '... and does not warn about what it could not see');
+}
+
 done_testing();
