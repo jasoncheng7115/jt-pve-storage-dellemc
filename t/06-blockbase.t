@@ -747,7 +747,12 @@ SKIP: {
     eval { Test::Plugin->free_image('t1', $scfg, 'base-100-disk-0', 1, 'raw') };
     $err = $@;
 
-    like($err, qr/dependent objects/, 'the refusal is reported to the operator');
+    # The ARRAY's words, not a summary of them. This used to assert the phrase
+    # "dependent objects", which the plugin produced by matching its own 422
+    # hint - so it said the same thing for every refusal, including ones that
+    # had nothing to do with clones (issue #11, lesson 18).
+    like($err, qr/\Qdependent clone exists\E/,
+        "the array's own reason for refusing the volume reaches the operator");
     like($err, qr/clone was made from this snapshot/,
         '... including what the array said about the marker itself');
     ok($Test::Plugin::SNAPSHOTS{"$vol.pve-base"},
@@ -2031,6 +2036,48 @@ SKIP: {
 
     ok(!Test::Plugin->can('_array_create_host_group'),
         'nothing here creates a host group, whatever the docs used to say');
+}
+
+# ---------------------------------------------------------------------------
+# The delete failure quotes the array, it does not summarise it (issue #11)
+#
+# This message used to read $err for /clone|dependent|child|in use/ and, on a
+# match, assert that thin clones existed. The string it matched was the
+# plugin's OWN 422 hint, which reads "...or still have snapshots or thin clones
+# depending on it" - so every 422 matched, whatever the array had said. A
+# customer whose volume was still attached to a host group was sent looking for
+# thin clones that did not exist.
+#
+# Lesson 18, which this project had already paid for once: never pattern-match
+# a message this plugin has had a hand in composing.
+# ---------------------------------------------------------------------------
+
+{
+    Test::Plugin->reset_state();
+    my $scfg = { 'dell-portal' => '10.0.0.1', 'dell-prefix' => 'pve' };
+
+    $Test::Plugin::VOLUMES{'pve-t1-100-disk0'} = { size => 1024 * 1024, used => 0 };
+
+    no warnings 'redefine';
+    local *Test::Plugin::_array_delete_volume = sub {
+        die "HTTP 422: The volume cannot be deleted because it is attached to"
+          . " f5d6b065. Please remove the host access and try again."
+          . " (0xE0A080020001) - the request conflicts with the array state:"
+          . " the object may already exist, still be attached, or still have"
+          . " snapshots or thin clones depending on it.\n";
+    };
+    local *Test::Plugin::is_device_in_use = sub { 0 };
+
+    eval { Test::Plugin->free_image('t1', $scfg, 'vm-100-disk-0', 0) };
+    my $err = $@;
+
+    ok($err, 'a refused delete fails');
+    like($err, qr/\Qremove the host access\E/,
+        "the array's own words reach the operator");
+    unlike($err, qr/usually means thin clones were made from it/,
+        'and the plugin does not assert thin clones it has not established')
+        or diag('that assertion came from matching the hint the plugin itself'
+              . ' appends to every 422');
 }
 
 done_testing();

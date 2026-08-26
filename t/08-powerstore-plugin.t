@@ -1048,4 +1048,81 @@ my $HG_SCFG = { 'dell-cluster-name' => 'c1', 'dell-host-mode' => 'host-group' };
         'per-node stays valid everywhere');
 }
 
+# ---------------------------------------------------------------------------
+# A group-level mapping has no host_id (issue #11)
+#
+# A host_volume_mapping row for a mapping made to a host group carries
+# host_group_id and NO host_id. Reading only host_id therefore calls the volume
+# unmapped, the caller unmaps nothing, and the array refuses to delete it
+# because it is still attached.
+#
+# This project already had the fact written down, for LUN allocation, where a
+# group mapping occupies its id on every member. It was never applied to the
+# unmap path.
+# ---------------------------------------------------------------------------
+
+{
+    package Test::MapApi;
+    sub new { my ($c,%a)=@_; bless {%a}, $c }
+    sub mapping_list { return $_[0]->{mappings} }
+    sub host_list    { return $_[0]->{hosts} }
+}
+
+{
+    no warnings 'redefine', 'once';
+    my $api = Test::MapApi->new(
+        mappings => [ { volume_id => 'v-1', host_group_id => 'hg-1' } ],
+        hosts    => [ { id => 'h-1', name => 'pve-c1-n1', host_group_id => 'hg-1' },
+                      { id => 'h-2', name => 'pve-c1-n2', host_group_id => 'hg-1' } ],
+    );
+    local *PVE::Storage::Custom::DellPowerStorePlugin::_api = sub { $api };
+    local *PVE::Storage::Custom::DellPowerStorePlugin::_volume_id = sub { 'v-1' };
+
+    my $hosts = $P->_array_mapped_hosts({}, 'pve-ps1-100-disk0');
+
+    is(scalar @$hosts, 1,
+        'a group-level mapping is reported, so the caller can unmap it')
+        or diag('reporting none is why the array refused the delete: the'
+              . ' volume was still attached to the group');
+    like($hosts->[0], qr/^pve-c1-n/,
+        '... as a member host name, which is what the unmap path takes');
+}
+
+{
+    no warnings 'redefine', 'once';
+    # Both kinds at once, and the same host reached twice, must not duplicate.
+    my $api = Test::MapApi->new(
+        mappings => [ { volume_id => 'v-1', host_id => 'h-3' },
+                      { volume_id => 'v-1', host_group_id => 'hg-1' } ],
+        hosts    => [ { id => 'h-1', name => 'pve-c1-n1', host_group_id => 'hg-1' },
+                      { id => 'h-3', name => 'pve-c1-n3' } ],
+    );
+    local *PVE::Storage::Custom::DellPowerStorePlugin::_api = sub { $api };
+    local *PVE::Storage::Custom::DellPowerStorePlugin::_volume_id = sub { 'v-1' };
+
+    my $hosts = $P->_array_mapped_hosts({}, 'pve-ps1-100-disk0');
+    is_deeply([sort @$hosts], ['pve-c1-n1', 'pve-c1-n3'],
+        'a host mapping and a group mapping are both reported');
+}
+
+{
+    no warnings 'redefine', 'once';
+    # A group whose members this storage cannot name. Reporting nothing would
+    # repeat the defect silently, so it warns and the delete then fails with
+    # the array's own reason rather than with silence.
+    my $api = Test::MapApi->new(
+        mappings => [ { volume_id => 'v-1', host_group_id => 'hg-unknown' } ],
+        hosts    => [ { id => 'h-1', name => 'pve-c1-n1' } ],
+    );
+    local *PVE::Storage::Custom::DellPowerStorePlugin::_api = sub { $api };
+    local *PVE::Storage::Custom::DellPowerStorePlugin::_volume_id = sub { 'v-1' };
+    my @warnings;
+    local $SIG{__WARN__} = sub { push @warnings, $_[0] };
+
+    my $hosts = $P->_array_mapped_hosts({}, 'pve-ps1-100-disk0');
+    is_deeply($hosts, [], 'an unnameable group yields no host to unmap by');
+    ok(scalar(grep { /host group/ } @warnings),
+        '... but says so, rather than reporting "not mapped"');
+}
+
 done_testing();

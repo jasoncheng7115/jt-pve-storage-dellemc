@@ -1510,10 +1510,50 @@ sub _array_mapped_hosts {
     my $hosts = eval { $api->host_list(undef, %opts) } // [];
     my %name_of = map { $_->{id} => $_->{name} } grep { $_->{id} } @$hosts;
 
+    # A GROUP-level mapping row carries host_group_id and NO host_id.
+    #
+    # Reading only host_id therefore calls the volume unmapped, and the caller
+    # unmaps nothing - so the array refuses to delete it, saying it is still
+    # attached (issue #11). This project already had that fact written down for
+    # LUN allocation, where a group mapping occupies its id on every member;
+    # it was never applied here.
+    #
+    # The answer is a host NAME because that is what the caller unmaps by, and
+    # _array_unmap_from_host resolves a host back to its group and detaches
+    # through the group. So any member of the group will do, and one is enough:
+    # the detach names the group, not the member.
+    my %group_member;
+    for my $host (@$hosts) {
+        my $gid = $host->{host_group_id} // next;
+        next unless defined $host->{name};
+        $group_member{$gid} //= $host->{name};
+    }
+
     my %seen;
     my @names;
     for my $mapping (@$mappings) {
-        my $host_name = $name_of{ $mapping->{host_id} // '' } // next;
+        my $host_name;
+
+        if (defined $mapping->{host_id} && length $mapping->{host_id}) {
+            $host_name = $name_of{ $mapping->{host_id} };
+        } elsif (defined $mapping->{host_group_id}
+                 && length $mapping->{host_group_id}) {
+            $host_name = $group_member{ $mapping->{host_group_id} };
+
+            # A group with no member this listing can name. Reporting nothing
+            # would repeat the defect, so say what was seen: the caller cannot
+            # unmap it, and the delete that follows will be refused with the
+            # array's own reason rather than silence.
+            unless (defined $host_name) {
+                warn "Volume '$name' is mapped to host group"
+                   . " '$mapping->{host_group_id}', which has no host this"
+                   . " storage can name. It cannot be unmapped from here;"
+                   . " remove the mapping in PowerStore Manager.\n";
+                next;
+            }
+        }
+
+        next unless defined $host_name;
         push @names, $host_name unless $seen{$host_name}++;
     }
 

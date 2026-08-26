@@ -1,3 +1,25 @@
+jt-pve-storage-dellemc (0.8.25~beta1-1) unstable; urgency=high
+
+  * BETA RELEASE. Not for production use.
+  * Fixed: a volume mapped through a host group could not be deleted. The
+    array refused it as still attached, because _array_mapped_hosts read only
+    host_id and a group-level host_volume_mapping row carries host_group_id
+    and no host_id, so the volume looked unmapped and nothing was detached.
+    This project already had that fact written down for LUN allocation, where
+    a group mapping occupies its id on every member; it had never been applied
+    to the unmap path. Reported by Alexander Gott (@alexandergott-afk) in
+    issue #11.
+  * Fixed: the message for a refused delete asserted that thin clones existed,
+    whatever the array had actually said. It matched $err against
+    /clone|dependent|child|in use/, and the string it matched was the plugin's
+    OWN 422 hint, which mentions thin clones. So a volume refused for being
+    attached to a host group sent the operator looking for clones that did not
+    exist. The array's own words are now quoted rather than summarised. This
+    is lesson 18 for the second time: never pattern-match a message this
+    plugin has had a hand in composing.
+
+ -- Jason Cheng <jason@jason.tools>  Wed, 26 Aug 2026 17:30:00 +0800
+
 jt-pve-storage-dellemc (0.8.24~beta1-1) unstable; urgency=critical
 
   * BETA RELEASE. Not for production use.

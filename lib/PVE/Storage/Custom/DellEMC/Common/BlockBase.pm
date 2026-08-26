@@ -1975,12 +1975,27 @@ sub free_image {
         $err .= "\n  While clearing its snapshots: "
               . join('; ', @snapshot_errors) if @snapshot_errors;
 
-        if ($err =~ /clone|dependent|child|in use/i) {
-            die "Cannot delete volume '$volname': the array reports dependent"
-              . " objects, which usually means thin clones were made from it."
-              . " Delete those first.\n  Array error: $err\n";
-        }
-        die "Failed to delete volume '$array_name': $err\n";
+        # NO pattern match on $err here, and that is the point.
+        #
+        # This used to say "the array reports dependent objects, which usually
+        # means thin clones were made from it" whenever $err matched
+        # /clone|dependent|child|in use/. The string it matched was OUR OWN:
+        # the 422 hint this plugin appends reads "...or still have snapshots or
+        # thin clones depending on it", so every 422 matched, whatever the
+        # array had actually said. A customer whose volume was still attached
+        # to a host group was told to go looking for thin clones that did not
+        # exist (issue #11).
+        #
+        # That is lesson 18 exactly - never pattern-match a message this plugin
+        # has had a hand in composing - and it had already cost this project a
+        # template delete that could never succeed. The array's own words are
+        # in $err and they are better than any summary of them, so hand them
+        # over and add only what the plugin knows independently.
+        die "Failed to delete volume '$array_name'.\n"
+          . "  The array refused it. Its reason is below; the usual causes are"
+          . " a thin clone made from this volume, a snapshot the plugin could"
+          . " not remove, or a host mapping that is still in place.\n"
+          . "  Array error: $err\n";
     }
 
     # Keep the WWID tracked if a stale device survived, so the reaper retries.

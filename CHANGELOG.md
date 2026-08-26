@@ -7,6 +7,40 @@ Versioning: the patch number increments per release and runs to .99 before
 the minor number moves — 0.7.0, 0.7.1, … 0.7.99, then 0.8.0. Every 0.x
 release is a prerelease; 1.0.0 is the on-hardware test pass.
 
+## [0.8.25~beta1] - 2026-08-26
+
+### Fixed
+- **A volume mapped through a host group could not be deleted.** The array
+  refused it as still attached, and it was: `_array_mapped_hosts` read only
+  `host_id`, and a **group-level `host_volume_mapping` row carries
+  `host_group_id` and no `host_id`**. So the volume looked unmapped, the caller
+  detached nothing, and the delete was refused.
+
+  This project already had that fact written down, for LUN allocation, where a
+  group mapping occupies its id on every member of the group. It was never
+  applied to the unmap path. A group mapping is now reported as one of its
+  member host names, which is what the unmap path takes, and detaching through
+  any member names the group.
+
+  Reported by **Alexander Gott ([@alexandergott-afk](https://github.com/alexandergott-afk))**
+  in [issue #11](https://github.com/jasoncheng7115/jt-pve-storage-dellemc/issues/11).
+
+- **The message for a refused delete asserted a cause it had not
+  established.** It matched the array's error against
+  `/clone|dependent|child|in use/` and, on a match, said thin clones had been
+  made from the volume. The string it matched was **the plugin's own 422
+  hint**, which reads *"...or still have snapshots or thin clones depending on
+  it"*, so every 422 matched whatever the array had said. A volume refused for
+  being attached to a host group sent the operator looking for thin clones that
+  did not exist.
+
+  The array's own words are now handed over rather than summarised, and the
+  possible causes are offered as possibilities rather than as a finding.
+
+  This is **lesson 18 for the second time**: never pattern-match a message this
+  plugin has had a hand in composing. The first time it made template deletion
+  impossible, for the same reason and against the same hint.
+
 ## [0.8.24~beta1] - 2026-08-25
 
 ### Fixed

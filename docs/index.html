@@ -171,7 +171,7 @@
     <div class="hero__glow"></div>
     <div class="hero__glow-left"></div>
     <div class="hero__content">
-        <div class="hero__badge">v0.8.24~beta1 <span class="hero__badge-sep"></span> MIT License</div>
+        <div class="hero__badge">v0.8.25~beta1 <span class="hero__badge-sep"></span> MIT License</div>
         <h1 class="hero__title">jt-pve-storage-dellemc</h1>
         <p class="hero__project-desc">
             <span class="lang-en">Dell EMC Storage Plugins for Proxmox VE</span>
@@ -1138,8 +1138,8 @@ DellPowerFlexPlugin                  <span class="comment"># no SCSI LUN, no mul
         <span class="lang-zh">驗證狀態</span>
     </h2>
     <p class="section-subtitle">
-        <span class="lang-en">3,374 unit tests run without an array or a device. What they cannot tell you is whether the endpoints exist, whether the field names are right, or whether a device ever appears &mdash; only an array can, and exactly one has.</span>
-        <span class="lang-zh">3,374 個單元測試不需要儲存伺服器或實體裝置即可執行。它們無法告訴你的是：端點是否存在、欄位名稱是否正確、裝置到底會不會出現 &mdash; 那隻有儲存伺服器能回答，而目前只有一台回答過。</span>
+        <span class="lang-en">3,382 unit tests run without an array or a device. What they cannot tell you is whether the endpoints exist, whether the field names are right, or whether a device ever appears &mdash; only an array can, and exactly one has.</span>
+        <span class="lang-zh">3,382 個單元測試不需要儲存伺服器或實體裝置即可執行。它們無法告訴你的是：端點是否存在、欄位名稱是否正確、裝置到底會不會出現 &mdash; 那隻有儲存伺服器能回答，而目前只有一台回答過。</span>
     </p>
 
     <h3>
@@ -1299,6 +1299,15 @@ DellPowerFlexPlugin                  <span class="comment"># no SCSI LUN, no mul
         <span class="lang-en">Changelog</span>
         <span class="lang-zh">變更紀錄</span>
     </h2>
+
+    <div class="changelog-entry">
+        <div class="changelog-version">v0.8.25~beta1</div>
+        <div class="changelog-date">2026-08-26</div>
+        <div class="changelog-summary">
+            <span class="lang-en">A volume mapped through a host group could not be deleted: a group-level mapping row carries host_group_id and no host_id, so reading only host_id called the volume unmapped and nothing was detached. And the message for a refused delete asserted thin clones existed, because it matched the plugin's own 422 hint rather than the array's answer. The array's words are quoted now. Reported by Alexander Gott (@alexandergott-afk), issue #11.</span>
+            <span class="lang-zh">透過 host group 對應的磁碟區刪不掉：群組層級的對應資料列只帶 host_group_id、沒有 host_id，所以只讀 host_id 會把磁碟區當成沒有對應，什麼也沒解除。而刪除被拒時的訊息會斷言有精簡複製存在，因為它比對到的是外掛自己附加的 422 提示，而不是儲存伺服器的回答。現在改為直接引用儲存伺服器的說法。由 Alexander Gott（@alexandergott-afk）在 issue #11 回報。</span>
+        </div>
+    </div>
 
     <div class="changelog-entry">
         <div class="changelog-version">v0.8.24~beta1</div>
