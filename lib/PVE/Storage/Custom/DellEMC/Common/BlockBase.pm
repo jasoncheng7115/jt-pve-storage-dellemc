@@ -115,6 +115,13 @@ use constant RESIZE_SETTLE_TIMEOUT => 30;
 # before this plugin will format it. The margin is generous on purpose: the
 # check is there to catch "this is a 2 TB VM disk", not to police alignment.
 use constant CONFIG_VOLUME_SIZE      => 1024 * 1024;
+
+# How long to let multipathd build a map after this plugin has claimed the
+# WWID and offered the paths. 'multipathd add path' is asynchronous, so a
+# check with no wait behind it reports "no map" for a map that is about to
+# exist. Short on purpose: this is on the VM start path, and it is only
+# reached when there is no map at all.
+use constant MAP_SETTLE_TIMEOUT      => 5;
 use constant CONFIG_VOLUME_MAX_BYTES => 64 * 1024 * 1024;
 
 use constant MULTIPATH_CONF_DIR    => '/etc/multipath/conf.d';
@@ -2320,7 +2327,27 @@ sub activate_volume {
         if ($existing && is_block_device($existing)) {
             eval { multipath_claim_wwid($wwid) };
 
-            my $now = eval { get_multipath_device($wwid) };
+            # And then actually give it that moment.
+            #
+            # 'multipathd add path' returns before the map exists: multipathd
+            # builds it asynchronously. Checking immediately, which is what
+            # this did when it was written, almost always misses - so a node
+            # seeing the volume for the first time settled for the bare sd
+            # path every time. That is exactly a live-migration target, which
+            # is where it was noticed (issue #7).
+            #
+            # Bounded and short, because this is the VM start path. It is only
+            # reached when there is no map at all: once one exists the check
+            # above returns first, so a running node never waits here.
+            my $now;
+            my $deadline = time() + MAP_SETTLE_TIMEOUT;
+            while (1) {
+                $now = eval { get_multipath_device($wwid) };
+                last if $now && is_block_device($now);
+                last if time() >= $deadline;
+                select(undef, undef, undef, 0.25);
+            }
+
             if ($now && is_block_device($now)) {
                 eval { $WWID_STATE->track_wwid($storeid, $wwid) };
                 $class->_reconcile_device_size($scfg, $storeid, $volname,

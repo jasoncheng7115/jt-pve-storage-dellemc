@@ -7,6 +7,29 @@ Versioning: the patch number increments per release and runs to .99 before
 the minor number moves — 0.7.0, 0.7.1, … 0.7.99, then 0.8.0. Every 0.x
 release is a prerelease; 1.0.0 is the on-hardware test pass.
 
+## [0.8.28~beta1] - 2026-08-27
+
+### Fixed
+- **A live-migration target ran the guest on a single path.** A node seeing a
+  volume for the first time claimed the WWID and then checked for the map
+  **immediately**. `multipathd add path` is asynchronous and returns before the
+  map exists, so the check almost always missed and the plugin settled for the
+  bare `/dev/sdX` it had started from. A migration target is exactly the case
+  where a node sees a volume for the first time, so this was the ordinary
+  outcome there rather than an edge case.
+
+  It now waits for the map, bounded at 5 seconds, and only when there is no map
+  at all — once one exists the fast path returns first, so a node already
+  running the volume never waits.
+
+  Reported by **Alexander Gott ([@alexandergott-afk](https://github.com/alexandergott-afk))**
+  in [issue #7](https://github.com/jasoncheng7115/jt-pve-storage-dellemc/issues/7).
+  His reading was right: the map takes a moment to become available after
+  `multipath -a`.
+
+  This was introduced by the 0.8.26 fix, one release earlier, and the comment
+  above it said *"give multipathd a moment"* while the code gave it none.
+
 ## [0.8.27~beta1] - 2026-08-26
 
 ### Added

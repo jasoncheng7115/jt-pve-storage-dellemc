@@ -1,3 +1,20 @@
+jt-pve-storage-dellemc (0.8.28~beta1-1) unstable; urgency=high
+
+  * BETA RELEASE. Not for production use.
+  * Fixed: a node seeing a volume for the first time settled for the bare sd
+    path instead of the multipath map, so a live-migration target ran the
+    guest on one path with no failover. 0.8.26 claimed the WWID and then
+    checked for the map immediately, but 'multipathd add path' is
+    asynchronous and returns before the map exists, so the check almost
+    always missed. It now waits, bounded at 5 seconds and only when there is
+    no map at all, so a node that already has one never waits. Reported by
+    Alexander Gott (@alexandergott-afk) in issue #7, whose reading of it was
+    right: the map takes a few seconds to become available.
+  * The comment in that code said "give multipathd a moment" while the code
+    gave it none.
+
+ -- Jason Cheng <jason@jason.tools>  Thu, 27 Aug 2026 09:00:00 +0800
+
 jt-pve-storage-dellemc (0.8.27~beta1-1) unstable; urgency=medium
 
   * BETA RELEASE. Not for production use.

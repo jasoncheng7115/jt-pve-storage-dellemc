@@ -2095,14 +2095,25 @@ SKIP: {
 {
     no warnings 'redefine', 'once';
     my @claimed;
-    my $map_exists = 0;
+    # Declared before the closures that read it.
+    my $claimed_at;
 
     local *PVE::Storage::Custom::DellEMC::Common::BlockBase::get_multipath_device =
-        sub { return $map_exists ? '/dev/mapper/3600test' : undef };
+        sub {
+            return undef unless defined $claimed_at;
+            return time() >= $claimed_at + 1 ? '/dev/mapper/3600test' : undef;
+        };
+    # Before the claim there is only an sd path, which is the whole point:
+    # accepting it is what the fix stops.
     local *PVE::Storage::Custom::DellEMC::Common::BlockBase::get_device_by_wwid =
-        sub { return $map_exists ? '/dev/mapper/3600test' : '/dev/sdc' };
+        sub { '/dev/sdc' };
+    # The map does NOT appear at once: multipathd builds it asynchronously,
+    # so 'multipathd add path' returns before there is anything to find. This
+    # models that with a delay, because checking immediately is what the first
+    # version of this did and it meant a migration target settled for the bare
+    # sd path every time (issue #7).
     local *PVE::Storage::Custom::DellEMC::Common::BlockBase::multipath_claim_wwid =
-        sub { push @claimed, $_[0]; $map_exists = 1; return 1 };
+        sub { push @claimed, $_[0]; $claimed_at = time(); return 1 };
     local *PVE::Storage::Custom::DellEMC::Common::BlockBase::is_block_device = sub { 1 };
 
     Test::Plugin->reset_state();
@@ -2110,6 +2121,8 @@ SKIP: {
         { size => 1024 * 1024, used => 0, wwid => '3600test' };
 
     my $scfg = { 'dell-portal' => '10.0.0.1', 'dell-prefix' => 'pve' };
+    my @warnings;
+    local $SIG{__WARN__} = sub { push @warnings, $_[0] };
     my $ok = eval { Test::Plugin->activate_volume('t1', $scfg, 'vm-100-disk-0') };
 
     is($ok, 1, 'the volume activates');
@@ -2117,6 +2130,14 @@ SKIP: {
         'a WWID with paths but no map is CLAIMED rather than accepted as-is')
         or diag('without this the guest runs on one path and multipath -ll is'
               . ' empty, which is what issue #7 showed');
+
+    # And the map is what it ends up using, not the sd path it started from.
+    # A live migration target sees the volume for the first time, so this is
+    # the ordinary case there rather than an edge one.
+    ok(!scalar(grep { /no multipath map on this node/ } @warnings),
+        'it waits for the map instead of settling for the sd path')
+        or diag('multipathd add path is asynchronous: checking with no wait'
+              . ' behind it reports no map for a map that is about to exist');
 }
 
 {
