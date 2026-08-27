@@ -135,4 +135,56 @@ CFG
         'a host mode the plugin does not have is refused, not guessed at');
 }
 
+# ---------------------------------------------------------------------------
+# The tool reads dell-name-prefix, because it decides every name it looks for
+#
+# This tool re-implements what the plugin does, deliberately: the situation it
+# exists for is the one where PVE will not start. That independence is also
+# why it drifts, and it has been left behind twice - by the password moving
+# out of storage.cfg, and by 'dell-host-mode shared'. dell-name-prefix is the
+# third thing that changes what it NAMES.
+#
+# Getting it wrong does not produce an error. It produces an empty listing,
+# which reads as "there are no backups" at the moment somebody is recovering
+# a VM configuration.
+# ---------------------------------------------------------------------------
+
+{
+    my $dir = File::Temp::tempdir(CLEANUP => 1);
+    mkdir "$dir/priv"; mkdir "$dir/priv/storage";
+
+    open(my $c, '>', "$dir/storage.cfg") or die $!;
+    print {$c} <<'CFG';
+dellpowerstore: ps-pfx
+	dell-portal 127.0.0.1:1
+	dell-username pveadmin
+	dell-name-prefix east
+	content images
+CFG
+    close($c);
+
+    my $out = do {
+        local $ENV{PVE_DELL_CONFIG_ROOT} = $dir;
+        qx{$^X -Ilib $SCRIPT -l ps-pfx 2>&1} // '';
+    };
+
+    # It cannot reach the array, which is fine: what matters is that it got as
+    # far as building names from the configured prefix rather than from 'pve'.
+    unlike($out, qr/Unknown option/, 'the tool accepts a storage with a prefix');
+
+    # And it can be given by hand, which is the case recovery is actually
+    # for: storage.cfg may not be readable at all.
+    #
+    # Asserted by PASSING the option, not by looking for it in --help. The
+    # help text is written out separately from GetOptions, so a check against
+    # --help passes for a flag that is documented and not wired - which is
+    # what the first version of this test did.
+    my $given = qx{$^X -Ilib $SCRIPT -l --name-prefix east --portal 127.0.0.1:1 --username u --password p ps-pfx 2>&1} // '';
+    unlike($given, qr/Unknown option/i,
+        'the tool accepts --name-prefix, for a recovery with no readable'
+      . ' storage.cfg')
+        or diag('documented but not wired: GetOptions and the usage text are'
+              . ' two places');
+}
+
 done_testing();

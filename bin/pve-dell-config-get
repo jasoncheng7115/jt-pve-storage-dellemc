@@ -33,7 +33,7 @@ use PVE::Storage::Custom::DellEMC::Common::Multipath qw(
 # /etc/pve is gone or pvedaemon will not start. It parses storage.cfg itself
 # when it can, and takes credentials on the command line when it cannot.
 
-my $VERSION = '0.8.29~beta1';
+my $VERSION = '0.8.30~beta1';
 
 my $NAMING = 'PVE::Storage::Custom::DellEMC::PowerStore::Naming';
 
@@ -57,6 +57,12 @@ Options:
       --password PASS    REST API password              (recover mode)
       --protocol PROTO   iscsi (default) or fc          (recover mode)
       --cluster NAME     Cluster name used in host names, default 'pve'
+      --name-prefix P    Leading component of every volume name, matching the
+                         storage's dell-name-prefix. Default 'pve', which is
+                         what a storage that never set it uses. Read from
+                         storage.cfg when available; get it wrong and this tool
+                         finds no volumes at all, because every name it looks
+                         for starts with it
       --host-mode MODE   'per-node' (default) or 'shared', matching the
                          storage's dell-host-mode. Read from storage.cfg when
                          it is available; get it wrong and this tool looks for
@@ -106,6 +112,7 @@ GetOptions(
     'password=s'   => \$opt{password},
     'protocol=s'   => \$opt{protocol},
     'cluster=s'    => \$opt{cluster},
+    'name-prefix=s' => \$opt{name_prefix},
     'host-mode=s'  => \$opt{host_mode},
     'insecure'     => \$opt{insecure},
     'verify-ssl'   => \$opt{verify_ssl},
@@ -216,6 +223,7 @@ if ($opt{recover}) {
         'dell-password'     => $opt{password},
         'dell-protocol'     => $opt{protocol},
         'dell-cluster-name' => $opt{cluster},
+        'dell-name-prefix'  => $opt{name_prefix},
         # Off unless asked for. Recovery is normally run against an array
         # with a self-signed certificate, and a certificate error at that
         # moment is an obstacle, not a protection. --insecure is accepted for
@@ -275,6 +283,20 @@ if (defined $type && $type ne 'dellpowerstore') {
 
 my $protocol = $scfg->{'dell-protocol'} // 'iscsi';
 my $cluster  = $scfg->{'dell-cluster-name'} // 'pve';
+
+# The volume-name prefix, which decides every name this tool looks for.
+#
+# This tool re-implements what the plugin does, because the situation it is for
+# is the one where PVE will not start - and that independence is exactly why it
+# drifts. It has been left behind twice already: by the password moving out of
+# storage.cfg, and by 'dell-host-mode shared'. This is the third thing that
+# changes what it NAMES, so it reads it the same way the plugin does.
+#
+# Absent means 'pve', which is what a storage created before the option existed
+# uses, so nothing here changes for one.
+my $name_prefix = $scfg->{'dell-name-prefix'};
+$name_prefix = 'pve' unless defined $name_prefix && length $name_prefix;
+$PVE::Storage::Custom::DellEMC::Common::Naming::NAME_PREFIX = $name_prefix;
 
 # ---------------------------------------------------------------------------
 # Array connection

@@ -7,6 +7,37 @@ Versioning: the patch number increments per release and runs to .99 before
 the minor number moves — 0.7.0, 0.7.1, … 0.7.99, then 0.8.0. Every 0.x
 release is a prerelease; 1.0.0 is the on-hardware test pass.
 
+## [0.8.30~beta1] - 2026-08-27
+
+### Fixed
+- **The recovery tool did not know about `dell-name-prefix`**, added one
+  release earlier. Against a storage that sets it, `pve-dell-config-get` would
+  have found **no backups at all**: every name it looks for begins with that
+  prefix and it was still using `pve`. Not an error, an empty listing — at the
+  moment somebody is recovering a VM configuration because PVE will not start.
+
+  It reads the key from `storage.cfg` now, and takes `--name-prefix` for a
+  recovery where `storage.cfg` cannot be read at all, which is the situation
+  the tool exists for.
+
+  **The third time this has happened.** That tool re-implements what the plugin
+  does, deliberately, because it must work when the storage layer does not —
+  and that independence is exactly why it drifts. It was left behind when the
+  password moved out of `storage.cfg`, and again by `dell-host-mode shared`.
+  Anything that changes what the plugin *names* or where it *reads from*
+  belongs on its checklist, and this was both.
+
+  Found by a question about whether a new installation would see volumes an old
+  one created, which is a different question and led here anyway.
+
+### Testing
+- The first version of the test for this asserted that `--name-prefix` appears
+  in `--help`, and **passed with the option documented but not wired**: the
+  usage text and `GetOptions` are two separate places in that script. It passes
+  the option to the tool now. Seeding the removal back is what showed the
+  difference — a test that passes for a reason you have not read is not a test,
+  which is the note already written against this same file.
+
 ## [0.8.29~beta1] - 2026-08-27
 
 ### Added

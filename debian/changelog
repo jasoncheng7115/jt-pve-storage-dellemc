@@ -1,3 +1,24 @@
+jt-pve-storage-dellemc (0.8.30~beta1-1) unstable; urgency=high
+
+  * BETA RELEASE. Not for production use.
+  * Fixed: bin/pve-dell-config-get did not know about 'dell-name-prefix',
+    added one release earlier, so against a storage that sets it the recovery
+    tool would have found NO backups at all - every name it looks for starts
+    with that prefix, and it was still using 'pve'. Not an error, an empty
+    listing, at the moment somebody is recovering a VM configuration. It reads
+    the key from storage.cfg now and takes --name-prefix for a recovery where
+    storage.cfg cannot be read.
+  * That tool re-implements what the plugin does, deliberately, because the
+    situation it exists for is the one where PVE will not start. This is the
+    third time that independence has left it behind: after the password moved
+    out of storage.cfg, and after 'dell-host-mode shared'.
+  * The first version of the test for it asserted --name-prefix appears in
+    --help, and passed with the option documented but not wired, because the
+    help text and GetOptions are two different places. It passes the option
+    now.
+
+ -- Jason Cheng <jason@jason.tools>  Thu, 27 Aug 2026 16:00:00 +0800
+
 jt-pve-storage-dellemc (0.8.29~beta1-1) unstable; urgency=medium
 
   * BETA RELEASE. Not for production use.
