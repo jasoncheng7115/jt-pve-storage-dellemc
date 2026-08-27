@@ -13,6 +13,7 @@ English: [CONFIGURATION.md](CONFIGURATION.md)
 | `dell-password` | string | 是 | — | REST API 密碼 |
 | `dell-ssl-verify` | boolean | 否 | `0` | 是否驗證儲存伺服器的 TLS 憑證 |
 | `dell-protocol` | `iscsi` \| `fc` | 否 | `iscsi` | SAN 協定 |
+| `dell-name-prefix` | string | 否 | `pve` | 這個 storage 在儲存伺服器上建立的每一個名稱的開頭。只有在兩個 Proxmox **叢集**共用同一台儲存伺服器時才需要。僅能在 `pvesm add` 時設定，詳見下方 |
 | `dell-host-mode` | `per-node` \| `shared` \| `host-group` | 否 | `per-node` | 每個節點一個 host 物件、整個叢集共用一個，或是把各節點的 host 放進儲存伺服器的 host group（僅 PowerStore）|
 | `dell-cluster-name` | string | 否 | `pve` | host 物件命名所使用的叢集名稱 |
 | `dell-device-timeout` | 10–300 | 否 | `60` | 等待 volume 裝置出現的秒數 |
@@ -202,6 +203,39 @@ PVE 大約每十秒輪詢一次所有儲存，而且是**依序**進行。一個
 **已經在別的群組裡的 host，會被留在原處。** 一個 host 最多只能屬於一個 host group，而位於群組中的 host 是**透過**該群組被對應的，所以搬動它會拿走那個群組對應給該節點的每一個磁碟區。外掛只會回報一次，然後繼續透過既有的群組來對應，而那是可行的。要不要搬動是操作者的決定，因為那台 host 只能服務 Proxmox 或另一個工作負載，不能兩者兼具。
 
 把節點從群組中移除，永遠不會自動發生；而且只有外掛自己建立的群組才可能被刪除。既有的逐 host 對應也會被保留：新的磁碟區走群組，搬移舊的則是一個刻意的動作，而不是升級時對運作中叢集所做的事。
+
+### 兩個叢集共用一台儲存伺服器
+
+磁碟區名稱是 `<字首>-<storage id>-<vmid>-disk<n>`，所以命名空間是 storage id。
+**兩個 Proxmox 叢集若都把 storage 取名為 `ps1`，就會共用每一個磁碟區名稱**：兩邊會互相
+列出對方的磁碟，而在其中一邊刪除也可能刪到另一邊。在同一個叢集內，外掛會拒絕兩個會撞名
+的 storage，但它讀的是本機的 `storage.cfg`，看不到另一個叢集。
+
+有兩種分開的方式，而第一種完全不花成本：
+
+```bash
+# 讓每個叢集用自己的 storage id
+pvesm add dellpowerstore ps1-east  ...
+pvesm add dellpowerstore ps1-west  ...
+
+# 或者保留 id，讓每個叢集用自己的字首
+pvesm add dellpowerstore ps1 --dell-name-prefix east ...   # east-ps1-100-disk0
+pvesm add dellpowerstore ps1 --dell-name-prefix west ...   # west-ps1-100-disk0
+```
+
+加入 storage 時也會去問儲存伺服器「這個字首底下是不是已經有磁碟區」，有的話就警告，
+所以撞名會被回報，而不是靜悄悄地發生。
+
+**升級不會改變任何東西。** 沒有設定 `dell-name-prefix` 的 storage 使用 `pve`，也就是這個
+選項存在之前外掛寫死的那個字串，所以儲存伺服器上既有的每一個磁碟區都保持原名、也仍然被
+認得。
+
+**它不能事後修改。** 字首是這個 storage 已建立的每一個磁碟區名稱的一部分；改掉它並不會
+替它們改名，而是會讓外掛再也找不到它們。因此變更它的 update 會被拒絕。請建立一個使用你
+想要的字首的新 storage，再把磁碟搬過去。
+
+字首也必須放得進該家族的名稱預算，這會在加入 storage 時檢查：PowerVault 整個磁碟區名稱
+只有 32 字元、PowerFlex 31，所以過長的字首加上過長的 storage id 會被拒絕，並附上數字。
 
 ## 驗證設定
 

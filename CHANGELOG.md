@@ -7,6 +7,60 @@ Versioning: the patch number increments per release and runs to .99 before
 the minor number moves — 0.7.0, 0.7.1, … 0.7.99, then 0.8.0. Every 0.x
 release is a prerelease; 1.0.0 is the on-hardware test pass.
 
+## [0.8.29~beta1] - 2026-08-27
+
+### Added
+- **`dell-name-prefix`**, the leading component of every name a storage creates
+  on the array, defaulting to **`pve`**.
+
+  It exists for one situation: **two Proxmox clusters sharing one array**. The
+  namespace is otherwise the storage id, so two clusters that both call a
+  storage `ps1` share every volume name, each listing the other's disks. The
+  existing collision check refuses that within a cluster but reads the local
+  `storage.cfg` and cannot see another cluster.
+
+  ```
+  pvesm add dellpowerstore ps1 --dell-name-prefix east   →  east-ps1-100-disk0
+  pvesm add dellpowerstore ps1 --dell-name-prefix west   →  west-ps1-100-disk0
+  ```
+
+  Requested by **Alexander Gott ([@alexandergott-afk](https://github.com/alexandergott-afk))**
+  in [issue #4](https://github.com/jasoncheng7115/jt-pve-storage-dellemc/issues/4).
+
+  **This is the shape Kubernetes CSI settled on for the identical problem.**
+  `external-provisioner` takes `--volume-name-prefix`, defaulting to `pvc`, and
+  Dell's own CSI drivers expose it. A *configured* value rather than one
+  derived from the cluster name, and that distinction is the point: a derived
+  name would have to be truncated to fit PowerVault's 32 characters, and two
+  clusters whose names truncate alike would collide again while appearing not
+  to.
+
+  **Upgrading changes no name.** A storage without the key resolves to `pve`,
+  the literal that was hardcoded before the option existed, so every volume
+  already on an array keeps its name and stays recognised. That property is the
+  first test written for this feature.
+
+  **It cannot be changed afterwards.** The prefix is part of the name of every
+  volume the storage has created; changing it would not rename them, it would
+  leave the plugin unable to find any of them. An update that changes it is
+  refused with that explanation.
+
+  **It must fit the family's name budget**, checked when the storage is added
+  rather than at the first create of a high-numbered VM: PowerVault allows 32
+  characters for a whole volume name, PowerFlex 31.
+
+### Fixed
+- The decoders had `pve-` compiled into their patterns while the encoders were
+  being made configurable. The encoders would have moved and the ownership
+  check would not, so `is_pve_managed_volume` would have answered **"not ours"
+  for a volume the plugin had just created** — which is a refusal to delete
+  what it owns. `Common::Naming` and `PowerVault::Naming` build their patterns
+  per call now. Caught by the test that asserts the gate follows the encoders.
+- The length check first read the encoder's refusal as a pass: it ran inside an
+  `eval`, and `encode_config_volume_name` **dies** rather than returning
+  something too long, so "could not work it out" was answered as "it fits".
+  Found by running it against a real `pvesm add` rather than trusting it.
+
 ## [0.8.28~beta1] - 2026-08-27
 
 ### Fixed

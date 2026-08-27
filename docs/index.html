@@ -171,7 +171,7 @@
     <div class="hero__glow"></div>
     <div class="hero__glow-left"></div>
     <div class="hero__content">
-        <div class="hero__badge">v0.8.28~beta1 <span class="hero__badge-sep"></span> MIT License</div>
+        <div class="hero__badge">v0.8.29~beta1 <span class="hero__badge-sep"></span> MIT License</div>
         <h1 class="hero__title">jt-pve-storage-dellemc</h1>
         <p class="hero__project-desc">
             <span class="lang-en">Dell EMC Storage Plugins for Proxmox VE</span>
@@ -1138,8 +1138,8 @@ DellPowerFlexPlugin                  <span class="comment"># no SCSI LUN, no mul
         <span class="lang-zh">驗證狀態</span>
     </h2>
     <p class="section-subtitle">
-        <span class="lang-en">3,392 unit tests run without an array or a device. What they cannot tell you is whether the endpoints exist, whether the field names are right, or whether a device ever appears &mdash; only an array can, and exactly one has.</span>
-        <span class="lang-zh">3,392 個單元測試不需要儲存伺服器或實體裝置即可執行。它們無法告訴你的是：端點是否存在、欄位名稱是否正確、裝置到底會不會出現 &mdash; 那隻有儲存伺服器能回答，而目前只有一台回答過。</span>
+        <span class="lang-en">3,409 unit tests run without an array or a device. What they cannot tell you is whether the endpoints exist, whether the field names are right, or whether a device ever appears &mdash; only an array can, and exactly one has.</span>
+        <span class="lang-zh">3,409 個單元測試不需要儲存伺服器或實體裝置即可執行。它們無法告訴你的是：端點是否存在、欄位名稱是否正確、裝置到底會不會出現 &mdash; 那隻有儲存伺服器能回答，而目前只有一台回答過。</span>
     </p>
 
     <h3>
@@ -1299,6 +1299,15 @@ DellPowerFlexPlugin                  <span class="comment"># no SCSI LUN, no mul
         <span class="lang-en">Changelog</span>
         <span class="lang-zh">變更紀錄</span>
     </h2>
+
+    <div class="changelog-entry">
+        <div class="changelog-version">v0.8.29~beta1</div>
+        <div class="changelog-date">2026-08-27</div>
+        <div class="changelog-summary">
+            <span class="lang-en">dell-name-prefix, the leading component of every name a storage creates on the array, defaulting to pve. For two Proxmox clusters sharing one array, where the namespace is otherwise the storage id. This is the shape Kubernetes CSI uses for the identical problem: a configured value, not one derived from the cluster name, because a derived name would have to be truncated and two clusters truncating alike would collide again. Upgrading changes no name. Requested by Alexander Gott (@alexandergott-afk), issue #4.</span>
+            <span class="lang-zh">新增 dell-name-prefix，一個 storage 在儲存伺服器上建立的每個名稱的開頭元件，預設 pve。它是為了兩個 Proxmox 叢集共用同一台儲存伺服器的情境，否則命名空間就只有 storage id。這正是 Kubernetes CSI 對同一問題採用的形式：由操作者設定，而不是從叢集名稱推導 &mdash; 推導出來的名稱勢必要截斷，而兩個截斷後相同的叢集會再次撞名。升級不會改變任何名稱。由 Alexander Gott（@alexandergott-afk）在 issue #4 提出。</span>
+        </div>
+    </div>
 
     <div class="changelog-entry">
         <div class="changelog-version">v0.8.28~beta1</div>

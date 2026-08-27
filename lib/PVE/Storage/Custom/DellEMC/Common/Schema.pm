@@ -54,6 +54,22 @@ sub common_properties {
             enum => ['iscsi', 'fc', 'sdc', 'nvme'],
             default => 'iscsi',
         },
+        'dell-name-prefix' => {
+            description => "Leading component of every object this storage"
+                . " creates on the array, so 'pve-<storage>-<vmid>-disk0'"
+                . " becomes '<prefix>-<storage>-<vmid>-disk0'. Defaults to"
+                . " 'pve' and normally needs no thought. It exists for two"
+                . " Proxmox CLUSTERS attached to one array: the namespace is"
+                . " otherwise the storage id, so two clusters that both call"
+                . " a storage 'ps1' share every volume name. Set at 'pvesm"
+                . " add' time only - changing it later would make this plugin"
+                . " stop recognising the volumes it has already created, so an"
+                . " update that changes it is refused.",
+            type => 'string',
+            pattern => '[a-z][a-z0-9]{1,15}',
+            default => 'pve',
+            optional => 1,
+        },
         'dell-host-mode' => {
             description => "How host objects are created on the array."
                 . " 'per-node' registers one host per PVE node, which is what"
@@ -194,6 +210,7 @@ sub common_options {
         'dell-password'              => { optional => 1 },
         'dell-ssl-verify'            => { optional => 1 },
         'dell-protocol'              => { optional => 1 },
+        'dell-name-prefix'           => { optional => 1 },
         'dell-host-mode'             => { optional => 1 },
         'dell-cluster-name'          => { optional => 1 },
         'dell-device-timeout'        => { optional => 1 },

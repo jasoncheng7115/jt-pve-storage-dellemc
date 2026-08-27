@@ -72,12 +72,22 @@ sub _valid_vmid {
     return PVE::Storage::Custom::DellEMC::Common::Naming::_valid_vmid($_[0]);
 }
 
-my $RE_DISK      = qr/^pve-($PFX)-(\d+)-d(\d+)\z/;
-my $RE_CLOUDINIT = qr/^pve-($PFX)-(\d+)-ci\z/;
-my $RE_EFIDISK   = qr/^pve-($PFX)-(\d+)-e(\d+)\z/;
-my $RE_TPMSTATE  = qr/^pve-($PFX)-(\d+)-t(\d+)\z/;
-my $RE_STATE     = qr/^pve-($PFX)-(\d+)-st-(.+)\z/;
-my $RE_VMCONF    = qr/^pve-($PFX)-(\d+)-vc-(.+)\z/;
+# Built per call, not compiled once: the leading component is configurable and
+# a constant here would decode nothing for a storage that sets it. Same reason
+# as in Common::Naming, and grepped for here because a guard added to one
+# family is worth nothing until it is applied to the others.
+sub _re {
+    my ($class, $body) = @_;
+    my $p = quotemeta($class->name_prefix);
+    return qr/^$p-($PFX)-$body/;
+}
+
+sub _RE_DISK      { $_[0]->_re(qr/(\d+)-d(\d+)\z/) }
+sub _RE_CLOUDINIT { $_[0]->_re(qr/(\d+)-ci\z/) }
+sub _RE_EFIDISK   { $_[0]->_re(qr/(\d+)-e(\d+)\z/) }
+sub _RE_TPMSTATE  { $_[0]->_re(qr/(\d+)-t(\d+)\z/) }
+sub _RE_STATE     { $_[0]->_re(qr/(\d+)-st-(.+)\z/) }
+sub _RE_VMCONF    { $_[0]->_re(qr/(\d+)-vc-(.+)\z/) }
 
 # A snapshot name is <volume>-s-<snapname>, and BOTH halves can contain the
 # separator, so neither a greedy nor a lazy match is right.
@@ -225,27 +235,27 @@ sub decode_volume_name {
     return undef if $name =~ $RE_SNAPSHOT;
     return undef if $name =~ $RE_BASESNAP;
 
-    if ($name =~ $RE_DISK) {
+    if ($name =~ $class->_RE_DISK) {
         my $vmid = _valid_vmid($2) or return undef;
         return { storage => $1, vmid => $vmid, diskid => int($3), type => 'disk' };
     }
-    if ($name =~ $RE_CLOUDINIT) {
+    if ($name =~ $class->_RE_CLOUDINIT) {
         my $vmid = _valid_vmid($2) or return undef;
         return { storage => $1, vmid => $vmid, type => 'cloudinit' };
     }
-    if ($name =~ $RE_EFIDISK) {
+    if ($name =~ $class->_RE_EFIDISK) {
         my $vmid = _valid_vmid($2) or return undef;
         return { storage => $1, vmid => $vmid, diskid => int($3), type => 'efidisk' };
     }
-    if ($name =~ $RE_TPMSTATE) {
+    if ($name =~ $class->_RE_TPMSTATE) {
         my $vmid = _valid_vmid($2) or return undef;
         return { storage => $1, vmid => $vmid, diskid => int($3), type => 'tpmstate' };
     }
-    if ($name =~ $RE_STATE) {
+    if ($name =~ $class->_RE_STATE) {
         my $vmid = _valid_vmid($2) or return undef;
         return { storage => $1, vmid => $vmid, snapname => $3, type => 'state' };
     }
-    if ($name =~ $RE_VMCONF) {
+    if ($name =~ $class->_RE_VMCONF) {
         my $vmid = _valid_vmid($2) or return undef;
         return { storage => $1, vmid => $vmid, snapname => $3, type => 'vmconf' };
     }
@@ -271,13 +281,13 @@ sub decode_snapshot_name {
 sub is_config_volume {
     my ($class, $name) = @_;
     return 0 unless defined $name;
-    return $name =~ $RE_VMCONF ? 1 : 0;
+    return $name =~ $class->_RE_VMCONF ? 1 : 0;
 }
 
 sub is_state_volume {
     my ($class, $name) = @_;
     return 0 unless defined $name;
-    return $name =~ $RE_STATE ? 1 : 0;
+    return $name =~ $class->_RE_STATE ? 1 : 0;
 }
 
 sub array_to_pve_volname {

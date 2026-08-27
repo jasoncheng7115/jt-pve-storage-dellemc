@@ -16,6 +16,7 @@ plugins — that is why the prefixes exist.
 | `dell-password` | string | yes | — | REST API password |
 | `dell-ssl-verify` | boolean | no | `0` | Verify the array's TLS certificate |
 | `dell-protocol` | `iscsi` \| `fc` | no | `iscsi` | SAN protocol |
+| `dell-name-prefix` | string | no | `pve` | Leading component of every name this storage creates on the array. Only needed when two Proxmox **clusters** share one array. Set at `pvesm add` time only; see below |
 | `dell-host-mode` | `per-node` \| `shared` \| `host-group` | no | `per-node` | One host object per node, one for the cluster, or per-node hosts inside an array host group (PowerStore only) |
 | `dell-cluster-name` | string | no | `pve` | Cluster name used in host object names |
 | `dell-device-timeout` | 10–300 | no | `60` | Seconds to wait for a volume's device to appear |
@@ -262,6 +263,44 @@ Removing a node from the group is never done automatically, and only groups
 this plugin created are ever deleted. Existing per-host mappings are left
 alone: new volumes go through the group, and moving the old ones is a
 deliberate act rather than something an upgrade does to a running cluster.
+
+### Two clusters on one array
+
+Volume names are `<prefix>-<storage-id>-<vmid>-disk<n>`, so the namespace is
+the storage id. **Two Proxmox clusters that both call a storage `ps1` share
+every volume name**: each lists the other's disks, and deleting from one can
+delete from the other. Within a cluster the plugin refuses two storages that
+would collide, but it reads the local `storage.cfg` and cannot see another
+cluster.
+
+Two ways to separate them, and the first costs nothing:
+
+```bash
+# Give each cluster its own storage id
+pvesm add dellpowerstore ps1-east  ...
+pvesm add dellpowerstore ps1-west  ...
+
+# Or keep the id and give each cluster its own prefix
+pvesm add dellpowerstore ps1 --dell-name-prefix east ...   # east-ps1-100-disk0
+pvesm add dellpowerstore ps1 --dell-name-prefix west ...   # west-ps1-100-disk0
+```
+
+Adding a storage also asks the array whether volumes already exist under its
+prefix, and warns if they do, so a collision is reported rather than silent.
+
+**Upgrading changes nothing.** A storage that does not set `dell-name-prefix`
+uses `pve`, which is the literal the plugin used before the option existed, so
+every volume already on the array keeps its name and stays recognised.
+
+**It cannot be changed afterwards.** The prefix is part of the name of every
+volume the storage has created; changing it would not rename them, it would
+make the plugin unable to find any of them. An update that changes it is
+refused. Create a new storage with the prefix you want and move the disks.
+
+The prefix must also fit the family's name budget, which is checked when the
+storage is added: PowerVault allows 32 characters for a whole volume name and
+PowerFlex 31, so a long prefix and a long storage id together will be refused
+with the numbers.
 
 ## Verifying a configuration
 

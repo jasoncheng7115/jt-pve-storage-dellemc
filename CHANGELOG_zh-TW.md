@@ -5,6 +5,51 @@ English version: [CHANGELOG.md](CHANGELOG.md)
 
 版本規則：小版號逐次遞增，到 .99 才進位到次版號 —— 0.7.0、0.7.1、……、0.7.99，然後 0.8.0。所有 0.x 版本都屬於預先發行版；1.0.0 的門檻是實機測試通過。
 
+## [0.8.29~beta1] - 2026-08-27
+
+### 新增
+- **`dell-name-prefix`**，一個 storage 在儲存伺服器上建立的每一個名稱的開頭元件，預設為
+  **`pve`**。
+
+  它只為一種情境存在：**兩個 Proxmox 叢集共用同一台儲存伺服器**。否則命名空間就是
+  storage id，於是兩個都把 storage 取名 `ps1` 的叢集會共用每一個磁碟區名稱，互相列出
+  對方的磁碟。既有的撞名檢查在同一個叢集內會拒絕，但它讀的是本機的 `storage.cfg`，
+  看不到另一個叢集。
+
+  ```
+  pvesm add dellpowerstore ps1 --dell-name-prefix east   →  east-ps1-100-disk0
+  pvesm add dellpowerstore ps1 --dell-name-prefix west   →  west-ps1-100-disk0
+  ```
+
+  由 **Alexander Gott（[@alexandergott-afk](https://github.com/alexandergott-afk)）**
+  在 [issue #4](https://github.com/jasoncheng7115/jt-pve-storage-dellemc/issues/4)
+  提出。
+
+  **這正是 Kubernetes CSI 針對同一個問題所採用的形式。** `external-provisioner` 有
+  `--volume-name-prefix` 參數，預設為 `pvc`，而 Dell 自己的 CSI driver 也把它暴露出來。
+  它是一個**由操作者設定**的值，而不是從叢集名稱推導出來的，這個區別正是重點：推導出來
+  的名稱勢必要截斷才塞得進 PowerVault 的 32 字元，而兩個截斷後相同的叢集名稱會再次撞名，
+  卻看起來像是已經解決了。
+
+  **升級不會改變任何名稱。** 沒有這個鍵的 storage 會解析成 `pve`，也就是這個選項存在
+  之前寫死的那個字串，所以儲存伺服器上既有的每一個磁碟區都保持原名、也仍然被認得。
+  這個性質是本功能寫下的第一個測試。
+
+  **它不能事後修改。** 字首是這個 storage 已建立的每一個磁碟區名稱的一部分；改掉它不會
+  替它們改名，而是會讓外掛再也找不到它們。變更它的 update 會被拒絕，並附上這個說明。
+
+  **它必須放得進該家族的名稱預算**，而且是在加入 storage 時檢查，而不是等到第一次替一台
+  高編號虛擬機建立磁碟時才發現：PowerVault 整個磁碟區名稱 32 字元，PowerFlex 31。
+
+### 已修正
+- 在編碼器被改成可設定的同時，解碼器的樣式裡仍然寫死著 `pve-`。編碼器動了、所有權檢查
+  沒動，於是 `is_pve_managed_volume` 會對**外掛自己剛建立的磁碟區回答「不是我們的」**
+  —— 那等於拒絕刪除自己擁有的東西。`Common::Naming` 與 `PowerVault::Naming` 現在都改成
+  每次呼叫時才組出樣式。這是被「斷言所有權判斷會跟著編碼器走」的那個測試抓到的。
+- 長度檢查一開始把編碼器的拒絕讀成了通過：它跑在 `eval` 裡，而
+  `encode_config_volume_name` 是**直接 die**、而不是回傳一個過長的名稱，於是「算不出來」
+  被當成了「放得下」。這是靠真的去跑一次 `pvesm add`、而不是相信它，才發現的。
+
 ## [0.8.28~beta1] - 2026-08-27
 
 ### 已修正

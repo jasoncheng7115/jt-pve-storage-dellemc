@@ -63,18 +63,31 @@ sub name_charclass_re        { qr/[^A-Za-z0-9_-]/ }
 
 my $PFX = qr/[A-Za-z0-9_]+/;
 
-my $RE_DISK      = qr/^pve-($PFX)-(\d+)-disk(\d+)\z/;
-my $RE_CLOUDINIT = qr/^pve-($PFX)-(\d+)-cloudinit\z/;
-my $RE_EFIDISK   = qr/^pve-($PFX)-(\d+)-efidisk(\d+)\z/;
-my $RE_TPMSTATE  = qr/^pve-($PFX)-(\d+)-tpmstate(\d+)\z/;
-my $RE_STATE     = qr/^pve-($PFX)-(\d+)-state-(.+)\z/;
+# These are built per call, not compiled once, because the leading component is
+# configurable now (see name_prefix). A constant regex here is what made
+# is_pve_managed_volume answer NO for a volume the plugin had just created
+# under a configured prefix - the encoders had moved and the decoders had not.
+#
+# The prefix is quoted: it comes from the storage configuration, and an
+# unquoted value would be read as a pattern.
+sub _re {
+    my ($class, $body) = @_;
+    my $p = quotemeta($class->name_prefix);
+    return qr/^$p-($PFX)-$body/;
+}
+
+sub _RE_DISK      { $_[0]->_re(qr/(\d+)-disk(\d+)\z/) }
+sub _RE_CLOUDINIT { $_[0]->_re(qr/(\d+)-cloudinit\z/) }
+sub _RE_EFIDISK   { $_[0]->_re(qr/(\d+)-efidisk(\d+)\z/) }
+sub _RE_TPMSTATE  { $_[0]->_re(qr/(\d+)-tpmstate(\d+)\z/) }
+sub _RE_STATE     { $_[0]->_re(qr/(\d+)-state-(.+)\z/) }
 # PVE dictates four volume names of its own construction, and these are the
 # two nobody had noticed: 'efi-enroll' for enrolling secure-boot keys, and
 # 'fleece-<n>' for a backup's fleecing image. Both reach alloc_image as a name
 # the plugin must keep, exactly as cloudinit and state do.
-my $RE_EFIENROLL = qr/^pve-($PFX)-(\d+)-efienroll\z/;
-my $RE_FLEECE    = qr/^pve-($PFX)-(\d+)-fleece(\d+)\z/;
-my $RE_VMCONF    = qr/^pve-($PFX)-(\d+)-vmconf-(.+)\z/;
+sub _RE_EFIENROLL { $_[0]->_re(qr/(\d+)-efienroll\z/) }
+sub _RE_FLEECE    { $_[0]->_re(qr/(\d+)-fleece(\d+)\z/) }
+sub _RE_VMCONF    { $_[0]->_re(qr/(\d+)-vmconf-(.+)\z/) }
 
 my $RE_SNAPSHOT  = qr/^(.+)\.pve-snap-(.+)\z/;
 my $RE_BASESNAP  = qr/^(.+)\.pve-base\z/;
@@ -141,9 +154,40 @@ sub storeid_to_prefix {
 
 # Name prefix shared by every object this storage owns. Use it for
 # server-side filters (`name=ilike.<prefix>%`) and for ownership checks.
+# The leading component of every name this plugin creates.
+#
+# 'pve' by default, which is what it was hardcoded to before this was an
+# option, so nothing an existing storage created changes name. An operator who
+# attaches TWO Proxmox clusters to one array can give each a prefix of its own,
+# because the namespace is otherwise the storage id and two clusters using the
+# same id share every volume name.
+#
+# This is the shape Kubernetes CSI settled on for the identical problem:
+# external-provisioner takes --volume-name-prefix, defaulting to 'pvc', and
+# Dell's own CSI drivers expose it. It is a configured value rather than
+# something derived from the cluster name, and that is the point: a derived
+# name would have to be truncated to fit PowerVault's 32 characters, and two
+# clusters whose names truncate alike would collide again while appearing not
+# to.
+#
+# Read from a package variable rather than passed in, for the reason the
+# storeid is: the callers pass a storeid and nothing else, and threading a
+# second argument through all of them was already rejected once in BlockBase.
+our $NAME_PREFIX;
+
+sub name_prefix {
+    my ($class) = @_;
+
+    my $p = $NAME_PREFIX;
+    $p = $PVE::Storage::Custom::DellEMC::Common::BlockBase::CURRENT_NAME_PREFIX
+        unless defined $p && length $p;
+
+    return (defined $p && length $p) ? $p : 'pve';
+}
+
 sub volume_prefix {
     my ($class, $storeid) = @_;
-    return 'pve-' . $class->storeid_to_prefix($storeid) . '-';
+    return $class->name_prefix . '-' . $class->storeid_to_prefix($storeid) . '-';
 }
 
 # ---------------------------------------------------------------------------
@@ -436,35 +480,35 @@ sub decode_volume_name {
     # A dot only ever appears in a snapshot name.
     return undef if $name =~ /\./;
 
-    if ($name =~ $RE_DISK) {
+    if ($name =~ $class->_RE_DISK) {
         my $vmid = _valid_vmid($2) or return undef;
         return { storage => $1, vmid => $vmid, diskid => int($3), type => 'disk' };
     }
-    if ($name =~ $RE_CLOUDINIT) {
+    if ($name =~ $class->_RE_CLOUDINIT) {
         my $vmid = _valid_vmid($2) or return undef;
         return { storage => $1, vmid => $vmid, type => 'cloudinit' };
     }
-    if ($name =~ $RE_EFIDISK) {
+    if ($name =~ $class->_RE_EFIDISK) {
         my $vmid = _valid_vmid($2) or return undef;
         return { storage => $1, vmid => $vmid, diskid => int($3), type => 'efidisk' };
     }
-    if ($name =~ $RE_TPMSTATE) {
+    if ($name =~ $class->_RE_TPMSTATE) {
         my $vmid = _valid_vmid($2) or return undef;
         return { storage => $1, vmid => $vmid, diskid => int($3), type => 'tpmstate' };
     }
-    if ($name =~ $RE_EFIENROLL) {
+    if ($name =~ $class->_RE_EFIENROLL) {
         my $vmid = _valid_vmid($2) or return undef;
         return { storage => $1, vmid => $vmid, type => 'efienroll' };
     }
-    if ($name =~ $RE_FLEECE) {
+    if ($name =~ $class->_RE_FLEECE) {
         my $vmid = _valid_vmid($2) or return undef;
         return { storage => $1, vmid => $vmid, diskid => int($3), type => 'fleece' };
     }
-    if ($name =~ $RE_STATE) {
+    if ($name =~ $class->_RE_STATE) {
         my $vmid = _valid_vmid($2) or return undef;
         return { storage => $1, vmid => $vmid, snapname => $3, type => 'state' };
     }
-    if ($name =~ $RE_VMCONF) {
+    if ($name =~ $class->_RE_VMCONF) {
         my $vmid = _valid_vmid($2) or return undef;
         return { storage => $1, vmid => $vmid, snapname => $3, type => 'vmconf' };
     }
@@ -497,13 +541,13 @@ sub is_snapshot_name {
 sub is_config_volume {
     my ($class, $name) = @_;
     return 0 unless defined $name;
-    return $name =~ $RE_VMCONF ? 1 : 0;
+    return $name =~ $class->_RE_VMCONF ? 1 : 0;
 }
 
 sub is_state_volume {
     my ($class, $name) = @_;
     return 0 unless defined $name;
-    return $name =~ $RE_STATE ? 1 : 0;
+    return $name =~ $class->_RE_STATE ? 1 : 0;
 }
 
 # The safety boundary for every list, delete and cleanup path: an object is

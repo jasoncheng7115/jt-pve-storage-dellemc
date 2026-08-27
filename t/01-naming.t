@@ -448,4 +448,73 @@ ok(!$N->is_valid_snapshot_name('.leading-dot'), 'snapshot must start alphanumeri
     }
 }
 
+# ---------------------------------------------------------------------------
+# The name prefix is configurable, and defaults to what it always was
+#
+# Two Proxmox clusters attached to one array share a volume namespace if they
+# use the same storage id, because the storage id is the namespace. Kubernetes
+# CSI solved the identical problem with --volume-name-prefix, defaulting to
+# 'pvc'; this is the same shape.
+#
+# THE COMPATIBILITY PROPERTY IS THE FIRST TEST. A storage that does not set the
+# option must produce byte-for-byte the names it produced before the option
+# existed, or an upgrade orphans every volume on the array.
+# ---------------------------------------------------------------------------
+
+{
+    my $N = 'PVE::Storage::Custom::DellEMC::PowerStore::Naming';
+
+    # No prefix configured anywhere: exactly the old literal.
+    {
+        local $PVE::Storage::Custom::DellEMC::Common::Naming::NAME_PREFIX;
+        local $PVE::Storage::Custom::DellEMC::Common::BlockBase::CURRENT_NAME_PREFIX;
+
+        is($N->volume_prefix('ps1'), 'pve-ps1-',
+            'with nothing configured the prefix is the literal it was hardcoded to');
+        is($N->encode_volume_name('ps1', 100, 0), 'pve-ps1-100-disk0',
+            '... and a volume name is unchanged, which is the upgrade guarantee');
+        is($N->encode_config_volume_name('ps1', 100, 'snap'),
+            'pve-ps1-100-vmconf-snap', '... and so is every other object');
+    }
+
+    # Configured: every object moves together. A prefix that applied to some
+    # names and not others would be worse than none.
+    {
+        local $PVE::Storage::Custom::DellEMC::Common::Naming::NAME_PREFIX = 'clusterA';
+
+        is($N->volume_prefix('ps1'), 'clusterA-ps1-', 'the configured prefix is used');
+        is($N->encode_volume_name('ps1', 100, 0), 'clusterA-ps1-100-disk0',
+            'a disk carries it');
+        is($N->encode_cloudinit_name('ps1', 100), 'clusterA-ps1-100-cloudinit',
+            'cloud-init carries it');
+        is($N->encode_config_volume_name('ps1', 100, 'snap'),
+            'clusterA-ps1-100-vmconf-snap', 'the config volume carries it');
+        is($N->encode_volume_group_name('ps1', 100), 'clusterA-ps1-100-vg',
+            'the volume group carries it');
+
+        # And the ownership gate follows, or the plugin would refuse to manage
+        # what it just created.
+        ok($N->is_pve_managed_volume('clusterA-ps1-100-disk0', 'ps1'),
+            'a volume created under the configured prefix is recognised as ours');
+        ok(!$N->is_pve_managed_volume('pve-ps1-100-disk0', 'ps1'),
+            '... and one under a different prefix is not, which is the point:'
+          . ' that is the other cluster\x27s volume');
+    }
+
+    # Two clusters, same storage id: different namespaces. This is the whole
+    # feature.
+    {
+        my $a = do {
+            local $PVE::Storage::Custom::DellEMC::Common::Naming::NAME_PREFIX = 'clusterA';
+            $N->encode_volume_name('ps1', 100, 0);
+        };
+        my $b = do {
+            local $PVE::Storage::Custom::DellEMC::Common::Naming::NAME_PREFIX = 'clusterB';
+            $N->encode_volume_name('ps1', 100, 0);
+        };
+        isnt($a, $b,
+            'two clusters using the same storage id no longer collide');
+    }
+}
+
 done_testing();

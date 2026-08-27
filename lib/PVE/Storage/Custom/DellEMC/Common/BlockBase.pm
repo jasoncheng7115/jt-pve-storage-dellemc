@@ -236,6 +236,34 @@ sub _delete_password {
 # a stale one, and nothing here is long-lived enough to cache.
 our $CURRENT_STOREID;
 
+# The volume-name prefix for the storage this operation belongs to.
+#
+# Announced the same way and for the same reason as the storeid above: the
+# naming class is reached through fifty-odd call sites that pass a storeid and
+# nothing else, and threading a second argument through all of them "and hope"
+# is what that comment already rejected once.
+#
+# Absent means 'pve', which is what every storage created before this option
+# existed uses and what every storage that never sets it keeps using. That is
+# the whole compatibility story: an upgrade changes no name, because a storage
+# with no 'dell-name-prefix' key resolves to exactly the literal that used to
+# be hardcoded.
+#
+# A path that computes a name without passing through an entry point gets
+# 'pve' too. For the default storage that is correct; for a configured one it
+# produces a name the array does not have, which fails as "not found" rather
+# than acting on the wrong object.
+our $CURRENT_NAME_PREFIX;
+
+# The prefix this storage uses, from its configuration or the default.
+sub _name_prefix {
+    my ($class, $scfg) = @_;
+
+    my $prefix = ref($scfg) eq 'HASH' ? $scfg->{'dell-name-prefix'} : undef;
+
+    return (defined $prefix && length $prefix) ? $prefix : 'pve';
+}
+
 sub _with_storeid {
     my ($class, $storeid, $code) = @_;
 
@@ -284,6 +312,7 @@ sub _password {
 sub get_identity {
     my ($class, $scfg, $storeid) = @_;
     local $CURRENT_STOREID = $storeid;
+    local $CURRENT_NAME_PREFIX = $class->_name_prefix($scfg);
     return join(':', $class->type(), _identity_portal($scfg),
         $class->identity_suffix($scfg));
 }
@@ -909,6 +938,7 @@ sub _wait_opts {
 sub activate_storage {
     my ($class, $storeid, $scfg, $cache) = @_;
     local $CURRENT_STOREID = $storeid;
+    local $CURRENT_NAME_PREFIX = $class->_name_prefix($scfg);
 
     # dell-protocol is shared with PowerFlex, whose values mean nothing to a
     # SAN family. Rejecting it here beats letting it fall through to the
@@ -1157,6 +1187,7 @@ sub _activate_iscsi {
 sub deactivate_storage {
     my ($class, $storeid, $scfg, $cache) = @_;
     local $CURRENT_STOREID = $storeid;
+    local $CURRENT_NAME_PREFIX = $class->_name_prefix($scfg);
 
     my $prefix  = $class->naming->volume_prefix($storeid);
     my $volumes = eval { $class->_array_list_volumes($scfg, $storeid, $prefix) } // [];
@@ -1219,6 +1250,7 @@ sub deactivate_storage {
 sub status {
     my ($class, $storeid, $scfg, $cache) = @_;
     local $CURRENT_STOREID = $storeid;
+    local $CURRENT_NAME_PREFIX = $class->_name_prefix($scfg);
 
     my ($total, $used, $avail);
 
@@ -1506,6 +1538,7 @@ sub _vendor_re {
 sub alloc_image {
     my ($class, $storeid, $scfg, $vmid, $fmt, $name, $size) = @_;
     local $CURRENT_STOREID = $storeid;
+    local $CURRENT_NAME_PREFIX = $class->_name_prefix($scfg);
 
     die "unsupported format '$fmt' - this storage only holds raw volumes\n"
         if defined $fmt && $fmt ne 'raw';
@@ -1838,6 +1871,7 @@ sub _map_to_all_hosts {
 sub free_image {
     my ($class, $storeid, $scfg, $volname, $isBase, $format) = @_;
     local $CURRENT_STOREID = $storeid;
+    local $CURRENT_NAME_PREFIX = $class->_name_prefix($scfg);
 
     my $array_name = $class->_array_volname($storeid, $volname);
 
@@ -2033,6 +2067,7 @@ sub free_image {
 sub list_images {
     my ($class, $storeid, $scfg, $vmid, $vollist, $cache) = @_;
     local $CURRENT_STOREID = $storeid;
+    local $CURRENT_NAME_PREFIX = $class->_name_prefix($scfg);
 
     my $prefix = $class->naming->volume_prefix($storeid);
     $prefix .= "${vmid}-" if $vmid;
@@ -2124,6 +2159,7 @@ sub _array_list_base_snapshots {
 sub volume_size_info {
     my ($class, $scfg, $storeid, $volname, $timeout) = @_;
     local $CURRENT_STOREID = $storeid;
+    local $CURRENT_NAME_PREFIX = $class->_name_prefix($scfg);
 
     my $array_name = $class->_array_volname($storeid, $volname);
     my $vol = $class->_array_get_volume($scfg, $array_name);
@@ -2138,6 +2174,7 @@ sub volume_size_info {
 sub volume_resize {
     my ($class, $scfg, $storeid, $volname, $size, $running, $snapname) = @_;
     local $CURRENT_STOREID = $storeid;
+    local $CURRENT_NAME_PREFIX = $class->_name_prefix($scfg);
 
     # Storage API 14 added $snapname, for storages that keep snapshots as a
     # chain of volumes. Here a snapshot is an object on the array and has no
@@ -2228,6 +2265,7 @@ sub _await_volume_size {
 sub rename_volume {
     my ($class, $scfg, $storeid, $source_volname, $target_vmid, $target_volname) = @_;
     local $CURRENT_STOREID = $storeid;
+    local $CURRENT_NAME_PREFIX = $class->_name_prefix($scfg);
 
     my $source = $class->_array_volname($storeid, $source_volname);
 
@@ -2249,6 +2287,7 @@ sub rename_volume {
 sub activate_volume {
     my ($class, $storeid, $scfg, $volname, $snapname, $cache) = @_;
     local $CURRENT_STOREID = $storeid;
+    local $CURRENT_NAME_PREFIX = $class->_name_prefix($scfg);
 
     if ($snapname) {
         my ($device) = $class->path($scfg, $volname, $storeid, $snapname);
@@ -2477,6 +2516,7 @@ sub _reconcile_device_size {
 sub deactivate_volume {
     my ($class, $storeid, $scfg, $volname, $snapname, $cache) = @_;
     local $CURRENT_STOREID = $storeid;
+    local $CURRENT_NAME_PREFIX = $class->_name_prefix($scfg);
 
     if ($snapname) {
         $class->_cleanup_snapshot_access($scfg, $storeid, $volname, $snapname);
@@ -2508,6 +2548,7 @@ my %SNAPSHOT_ACCESS;
 sub path {
     my ($class, $scfg, $volname, $storeid, $snapname) = @_;
     local $CURRENT_STOREID = $storeid;
+    local $CURRENT_NAME_PREFIX = $class->_name_prefix($scfg);
 
     my $parsed = $class->_parse_volname($volname);
     die "unable to parse volume name '$volname'\n" unless $parsed;
@@ -2573,6 +2614,7 @@ sub filesystem_path {
 sub qemu_blockdev_options {
     my ($class, $scfg, $storeid, $volname, $machine_version, $options) = @_;
     local $CURRENT_STOREID = $storeid;
+    local $CURRENT_NAME_PREFIX = $class->_name_prefix($scfg);
 
     my ($path) = $class->path($scfg, $volname, $storeid,
         $options->{'snapshot-name'});
@@ -2613,6 +2655,7 @@ sub _short_token {
 sub _prepare_snapshot_access {
     my ($class, $scfg, $storeid, $volname, $snapname) = @_;
     local $CURRENT_STOREID = $storeid;
+    local $CURRENT_NAME_PREFIX = $class->_name_prefix($scfg);
 
     my $array_name = $class->_array_volname($storeid, $volname);
     my $snap_name  = $class->naming->encode_snapshot_name($array_name, $snapname);
@@ -2663,6 +2706,7 @@ sub _prepare_snapshot_access {
 sub _cleanup_snapshot_access {
     my ($class, $scfg, $storeid, $volname, $snapname) = @_;
     local $CURRENT_STOREID = $storeid;
+    local $CURRENT_NAME_PREFIX = $class->_name_prefix($scfg);
 
     my $key = "$storeid:$volname:$snapname";
     my $temp = delete $SNAPSHOT_ACCESS{$key} or return;
@@ -2822,6 +2866,7 @@ sub _reap_temp_clones {
 sub volume_snapshot {
     my ($class, $scfg, $storeid, $volname, $snap) = @_;
     local $CURRENT_STOREID = $storeid;
+    local $CURRENT_NAME_PREFIX = $class->_name_prefix($scfg);
 
     my $array_name = $class->_array_volname($storeid, $volname);
     my $snap_name  = $class->naming->encode_snapshot_name($array_name, $snap);
@@ -2871,6 +2916,7 @@ sub volume_snapshot {
 sub volume_snapshot_delete {
     my ($class, $scfg, $storeid, $volname, $snap, $running) = @_;
     local $CURRENT_STOREID = $storeid;
+    local $CURRENT_NAME_PREFIX = $class->_name_prefix($scfg);
 
     my $array_name = $class->_array_volname($storeid, $volname);
     my $snap_name  = $class->naming->encode_snapshot_name($array_name, $snap);
@@ -2931,6 +2977,7 @@ sub volume_snapshot_delete {
 sub volume_rollback_is_possible {
     my ($class, $scfg, $storeid, $volname, $snap, $blockers) = @_;
     local $CURRENT_STOREID = $storeid;
+    local $CURRENT_NAME_PREFIX = $class->_name_prefix($scfg);
 
     $blockers //= [];   # not guaranteed to be set by the caller
 
@@ -3002,6 +3049,7 @@ sub _confirmed_device {
 sub volume_snapshot_rollback {
     my ($class, $scfg, $storeid, $volname, $snap) = @_;
     local $CURRENT_STOREID = $storeid;
+    local $CURRENT_NAME_PREFIX = $class->_name_prefix($scfg);
 
     my $array_name = $class->_array_volname($storeid, $volname);
     my $snap_name  = $class->naming->encode_snapshot_name($array_name, $snap);
@@ -3088,6 +3136,7 @@ sub volume_snapshot_rollback {
 sub volume_snapshot_info {
     my ($class, $scfg, $storeid, $volname) = @_;
     local $CURRENT_STOREID = $storeid;
+    local $CURRENT_NAME_PREFIX = $class->_name_prefix($scfg);
 
     my $info = { current => {} };
 
@@ -3115,6 +3164,7 @@ sub rename_snapshot {
 sub volume_snapshot_list {
     my ($class, $scfg, $storeid, $volname) = @_;
     local $CURRENT_STOREID = $storeid;
+    local $CURRENT_NAME_PREFIX = $class->_name_prefix($scfg);
 
     my $array_name = $class->_array_volname($storeid, $volname);
     my $snaps = $class->_array_snapshot_list($scfg, $storeid, $array_name) // [];
@@ -3142,6 +3192,7 @@ sub volume_snapshot_list {
 sub create_base {
     my ($class, $storeid, $scfg, $volname) = @_;
     local $CURRENT_STOREID = $storeid;
+    local $CURRENT_NAME_PREFIX = $class->_name_prefix($scfg);
 
     my ($vtype, undef, $vmid, undef, undef, $isBase, $format) =
         $class->parse_volname($volname);
@@ -3188,6 +3239,7 @@ sub create_base {
 sub clone_image {
     my ($class, $scfg, $storeid, $volname, $vmid, $snap) = @_;
     local $CURRENT_STOREID = $storeid;
+    local $CURRENT_NAME_PREFIX = $class->_name_prefix($scfg);
 
     my $parsed = $class->_parse_volname($volname);
     die "unable to parse volume name '$volname'\n" unless $parsed;
@@ -3400,6 +3452,7 @@ sub volume_export {
     my ($class, $scfg, $storeid, $fh, $volname, $format, $snapshot,
         $base_snapshot, $with_snapshots) = @_;
     local $CURRENT_STOREID = $storeid;
+    local $CURRENT_NAME_PREFIX = $class->_name_prefix($scfg);
 
     die "volume export format '$format' is not available for $class\n"
         if !defined($format) || $format ne 'raw+size';
@@ -3434,6 +3487,7 @@ sub volume_import {
     my ($class, $scfg, $storeid, $fh, $volname, $format, $snapshot,
         $base_snapshot, $with_snapshots, $allow_rename) = @_;
     local $CURRENT_STOREID = $storeid;
+    local $CURRENT_NAME_PREFIX = $class->_name_prefix($scfg);
 
     die "volume import format '$format' is not available for $class\n"
         if !defined($format) || $format ne 'raw+size';
@@ -3681,6 +3735,59 @@ sub _check_foreign_volumes {
     return 1;
 }
 
+# A prefix the family's name budget cannot afford.
+#
+# PowerVault allows 32 characters for a whole volume name and PowerFlex 31, so
+# a long prefix does not fail at 'pvesm add' - it fails much later, at the
+# first create of a volume for a high vmid, which is the worst moment to find
+# out. Checked here against the worst case the plugin can generate.
+sub _check_name_prefix {
+    my ($class, $storeid, $config) = @_;
+
+    my $prefix = $config->{'dell-name-prefix'};
+    return 1 unless defined $prefix && length $prefix;
+
+    my $naming = $class->naming_class_for_check;
+
+    my $max = $naming->max_volume_name_length;
+
+    # The longest names this storage could ever need: the highest vmid PVE
+    # allows, and the longest suffix of each kind.
+    #
+    # A refusal from the encoder counts as not fitting. It reports "leaves no
+    # room for a suffix" rather than returning something too long, and an
+    # earlier version of this check ran it inside an eval and read the undef
+    # as "fine" - "could not work it out" answered as "it fits", which is the
+    # mistake this project keeps writing down.
+    for my $probe (
+        ['a disk',            sub { $naming->encode_volume_name($storeid, 999999999, 99) }],
+        ['a config backup',   sub { $naming->encode_config_volume_name($storeid, 999999999, 'x' x 8) }],
+        ['a vmstate volume',  sub { $naming->encode_state_name($storeid, 999999999, 'x' x 8) }],
+    ) {
+        my ($what, $build) = @$probe;
+
+        my ($name, $err);
+        {
+            local $PVE::Storage::Custom::DellEMC::Common::Naming::NAME_PREFIX = $prefix;
+            $name = eval { $build->() };
+            $err  = $@;
+        }
+
+        next if !$err && defined $name && length($name) <= $max;
+
+        my $detail = $err ? do { my $e = $err; chomp $e; $e }
+                          : "it would be " . length($name) . " characters"
+                            . " ('$name')";
+
+        die "Storage '$storeid': 'dell-name-prefix $prefix' does not fit."
+          . " A name for $what may be at most $max characters on "
+          . $class->type() . ", and $detail.\n"
+          . "  Use a shorter prefix, or a shorter storage id.\n";
+    }
+
+    return 1;
+}
+
 sub _check_prefix_collision {
     my ($class, $storeid, $scfg) = @_;
 
@@ -3750,6 +3857,7 @@ sub on_add_hook {
 
     $class->_check_protocol($storeid, $scfg);
     $class->_check_host_mode($storeid, $scfg);
+    $class->_check_name_prefix($storeid, $scfg);
     $class->_check_prefix_collision($storeid, $scfg);
 
     # After the refusals, never before: this one talks to the array, and
@@ -3799,6 +3907,25 @@ sub on_add_hook {
 # take its only copy of the password away.
 sub on_update_hook_full {
     my ($class, $storeid, $scfg, $update, $delete, $sensitive) = @_;
+
+    # The prefix is part of every name already on the array. Changing it does
+    # not rename anything: it makes this plugin look for names that do not
+    # exist, so every volume the storage has created becomes invisible to it
+    # at once - listed nowhere, activated nowhere, deleted nowhere. There is no
+    # safe way to do that on a storage in use, so it is decided at 'pvesm add'
+    # and never after.
+    if (exists $update->{'dell-name-prefix'}) {
+        my $now  = $class->_name_prefix($scfg);
+        my $want = $update->{'dell-name-prefix'};
+        $want = 'pve' unless defined $want && length $want;
+
+        die "Storage '$storeid': 'dell-name-prefix' cannot be changed after"
+          . " the storage is created. It is part of the name of every volume"
+          . " already on the array, so changing it from '$now' to '$want'"
+          . " would leave this plugin unable to find any of them. Create a new"
+          . " storage with the prefix you want, and move the disks to it.\n"
+            if $now ne $want;
+    }
 
     my $res = $class->on_update_hook($storeid, $update, %{ $sensitive // {} });
 

@@ -1,3 +1,29 @@
+jt-pve-storage-dellemc (0.8.29~beta1-1) unstable; urgency=medium
+
+  * BETA RELEASE. Not for production use.
+  * Added: 'dell-name-prefix', the leading component of every name a storage
+    creates on the array, defaulting to 'pve'. It exists for two Proxmox
+    CLUSTERS sharing one array: the namespace is otherwise the storage id, so
+    two clusters that both call a storage 'ps1' share every volume name. This
+    is the shape Kubernetes CSI uses for the identical problem, where
+    external-provisioner takes --volume-name-prefix defaulting to 'pvc'.
+    Requested by Alexander Gott (@alexandergott-afk) in issue #4.
+  * UPGRADING CHANGES NO NAME. A storage without the key resolves to 'pve',
+    the literal that was hardcoded before, so every volume already on an array
+    keeps its name and stays recognised. The first test written for this is
+    that property.
+  * It cannot be changed after the storage is created: the prefix is part of
+    the name of every volume already made, so changing it would leave the
+    plugin unable to find any of them. An update that changes it is refused.
+  * It must fit the family's name budget, checked when the storage is added:
+    PowerVault allows 32 characters for a whole volume name and PowerFlex 31.
+  * The decoders had 'pve-' compiled into their patterns, so the encoders
+    would have moved and the ownership check would not - it would have
+    answered "not ours" for a volume the plugin had just created. Both
+    Common::Naming and PowerVault::Naming build them per call now.
+
+ -- Jason Cheng <jason@jason.tools>  Thu, 27 Aug 2026 14:00:00 +0800
+
 jt-pve-storage-dellemc (0.8.28~beta1-1) unstable; urgency=high
 
   * BETA RELEASE. Not for production use.
