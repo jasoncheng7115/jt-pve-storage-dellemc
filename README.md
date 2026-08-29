@@ -6,7 +6,7 @@ Dell EMC storage plugins for Proxmox VE.
 
 > ## ⚠️ BETA SOFTWARE — READ BEFORE INSTALLING
 >
-> **This is a beta release (0.8.30~beta1). Two families have run against
+> **This is a beta release (0.8.31~beta1). Two families have run against
 > real hardware**, and two have not.
 >
 > A **PowerVault ME4024** on firmware `GT280R011-01` over Fibre Channel
@@ -50,7 +50,7 @@ the unit an operator actually thinks about.
 
 ## Project status
 
-> **Version 0.8.30~beta1 — four storage types are code complete. One has
+> **Version 0.8.31~beta1 — four storage types are code complete. One has
 > passed a full run on real hardware, PowerVault ME over Fibre Channel on an
 > ME4024, and a PowerStore has run part of one.**
 > PowerFlex and Unity XT have never been run against an array at all, and
@@ -414,7 +414,7 @@ family has never run against an array** — see
 | [`docs/QUICKSTART.md`](docs/QUICKSTART.md) | First storage in a few minutes |
 | [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md) | Every `storage.cfg` parameter |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Multi-family architecture, how to add a family |
-| [`docs/NAMING_CONVENTIONS.md`](docs/NAMING_CONVENTIONS.md) | PVE object to array object naming |
+| [`docs/NAMING_CONVENTIONS.md`](docs/NAMING_CONVENTIONS.md) | PVE object to array object naming, and **what an upgrade does to volumes an older version created** (nothing) |
 | [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) | Symptoms, causes, recovery |
 | [`docs/TESTING.md`](docs/TESTING.md) | Test matrix and hardware verification status |
 | [`docs/RELEASE_TESTING.md`](docs/RELEASE_TESTING.md) | What is tested before every release |

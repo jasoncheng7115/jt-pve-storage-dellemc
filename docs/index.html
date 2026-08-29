@@ -103,6 +103,10 @@
             <span class="lang-en">Installation</span>
             <span class="lang-zh">安裝</span>
         </a>
+        <a href="#upgrading" class="sidebar__link">
+            <span class="lang-en">Upgrading</span>
+            <span class="lang-zh">升級</span>
+        </a>
         <a href="#quickstart" class="sidebar__link">
             <span class="lang-en">Quick Start</span>
             <span class="lang-zh">快速入門</span>
@@ -171,7 +175,7 @@
     <div class="hero__glow"></div>
     <div class="hero__glow-left"></div>
     <div class="hero__content">
-        <div class="hero__badge">v0.8.30~beta1 <span class="hero__badge-sep"></span> MIT License</div>
+        <div class="hero__badge">v0.8.31~beta1 <span class="hero__badge-sep"></span> MIT License</div>
         <h1 class="hero__title">jt-pve-storage-dellemc</h1>
         <p class="hero__project-desc">
             <span class="lang-en">Dell EMC Storage Plugins for Proxmox VE</span>
@@ -719,6 +723,55 @@
 </section>
 
 <!-- ---- Quick start ---- -->
+<section class="doc-section" id="upgrading">
+    <h2 class="section-title">
+        <span class="lang-en">Upgrading</span>
+        <span class="lang-zh">升級</span>
+    </h2>
+
+    <p>
+        <span class="lang-en"><strong>Volumes created by an older version keep working, and nothing needs doing.</strong> Every name the plugin creates begins with a prefix, which is <code>pve</code> unless a storage sets <code>dell-name-prefix</code> &mdash; and that is the literal the plugin used before the option existed. A storage that has never set it produces byte-identical names after an upgrade, so every volume already on the array stays recognised.</span>
+        <span class="lang-zh"><strong>由舊版建立的磁碟區會繼續正常運作，而且什麼都不用做。</strong>外掛建立的每一個名稱都以一個前置字串開頭，除非該 storage 設定了 <code>dell-name-prefix</code>，否則就是 <code>pve</code> &mdash; 而那正是這個選項存在之前外掛寫死的那個字串。從未設定過它的 storage，升級後會產生逐位元組相同的名稱，因此儲存伺服器上既有的每一個磁碟區都仍然被認得。</span>
+    </p>
+
+    <table class="doc-table">
+        <thead><tr>
+            <th><span class="lang-en">Object created by an older version</span><span class="lang-zh">由舊版建立的物件</span></th>
+            <th><span class="lang-en">Still recognised</span><span class="lang-zh">是否仍被認得</span></th>
+        </tr></thead>
+        <tbody>
+            <tr><td><code>pve-ps1-100-disk0</code></td><td><span class="lang-en">yes, as a VM disk</span><span class="lang-zh">是，視為 VM 磁碟</span></td></tr>
+            <tr><td><code>pve-ps1-100-efidisk0</code>, <code>-tpmstate0</code>, <code>-cloudinit</code></td><td><span class="lang-en">yes</span><span class="lang-zh">是</span></td></tr>
+            <tr><td><code>pve-ps1-100-vmconf-before</code></td><td><span class="lang-en">yes, as a config backup</span><span class="lang-zh">是，視為設定備份</span></td></tr>
+            <tr><td><code>pve-ps1-100-disk0.pve-snap-before</code></td><td><span class="lang-en">yes, as a snapshot</span><span class="lang-zh">是，視為快照</span></td></tr>
+            <tr><td><code>pve-ps1-100-disk0.pve-base</code></td><td><span class="lang-en">yes, as a template marker</span><span class="lang-zh">是，視為範本標記</span></td></tr>
+        </tbody>
+    </table>
+
+    <p>
+        <span class="lang-en">Nothing acts on old volumes unattended. The orphan reaper touches only the node&rsquo;s own devices and never deletes an array volume; the temporary-clone reaper works from a state file this plugin wrote, which old volumes are not in; and per-VM volume groups are off by default and never add existing volumes retroactively.</span>
+        <span class="lang-zh">沒有任何路徑會在無人值守的情況下動到舊磁碟區。孤兒回收器只處理節點自己的裝置，從不刪除儲存伺服器上的磁碟區；暫時複製回收器依據的是外掛自己寫下的狀態檔，而舊磁碟區不在其中；每 VM 一個 volume group 預設關閉，也不會把既有磁碟區追溯加入群組。</span>
+    </p>
+
+    <h3 class="subsection-title"><span class="lang-en">Two things that do change, and both are fixes</span><span class="lang-zh">有兩件事確實會改變，而兩者都是修正</span></h3>
+
+    <ul>
+        <li>
+            <span class="lang-en"><strong>A multipath map may be built on first use.</strong> Older versions could accept a single <code>/dev/sdX</code> and leave the guest with no failover. From 0.8.28 the WWID is claimed and the map is waited for, so <code>multipath -a</code> appearing in the journal for an existing volume is expected.</span>
+            <span class="lang-zh"><strong>第一次使用時可能會建立 multipath map。</strong>舊版可能接受單一的 <code>/dev/sdX</code>，讓客體沒有任何路徑備援。從 0.8.28 起會認領 WWID 並等待 map 出現，因此在日誌中看到對既有磁碟區執行 <code>multipath -a</code>，是預期的。</span>
+        </li>
+        <li>
+            <span class="lang-en"><strong>Adding an existing storage warns that volumes already exist</strong> under its prefix. That is the cross-cluster check; for a storage you are re-adding it is expected, and the message says so.</span>
+            <span class="lang-zh"><strong>加入既有 storage 時會警告該前綴下已經有磁碟區。</strong>那是跨叢集檢查；對於你自己重新加入的 storage，這是預期的，訊息裡也寫明了這種讀法。</span>
+        </li>
+    </ul>
+
+    <div class="alert alert--danger">
+        <span class="lang-en"><strong>Do not set <code>dell-name-prefix</code> on a storage that already has volumes.</strong> It would leave the plugin unable to find any of them. <code>pvesm set</code> refuses it for that reason: the prefix can only be chosen when the storage is created.</span>
+        <span class="lang-zh"><strong>不要對已經有磁碟區的 storage 設定 <code>dell-name-prefix</code>。</strong>那會讓外掛再也找不到它們。<code>pvesm set</code> 正是因此會拒絕：前置字串只能在建立 storage 時決定。</span>
+    </div>
+</section>
+
 <section class="doc-section" id="quickstart">
     <h2 class="section-title">
         <span class="lang-en">Quick Start</span>
@@ -1299,6 +1352,15 @@ DellPowerFlexPlugin                  <span class="comment"># no SCSI LUN, no mul
         <span class="lang-en">Changelog</span>
         <span class="lang-zh">變更紀錄</span>
     </h2>
+
+    <div class="changelog-entry">
+        <div class="changelog-version">v0.8.31~beta1</div>
+        <div class="changelog-date">2026-08-29</div>
+        <div class="changelog-summary">
+            <span class="lang-en">Documentation: what an upgrade does to volumes an older version created, which is nothing. A new Upgrading section here and in NAMING_CONVENTIONS lists every object kind an older version could have made and confirms each is still recognised, records what nothing touches them, and names the two things that do change &mdash; a multipath map built on first use, and the prefix warning when re-adding a storage. The prefix-isolation text also said every object is named pve-, which stopped being true in 0.8.29.</span>
+            <span class="lang-zh">文件：升級對舊版建立的磁碟區有什麼影響 &mdash; 答案是沒有影響。這裡與 NAMING_CONVENTIONS 都新增了「升級」章節，列出舊版可能建立過的每一種物件並逐一確認仍被認得，記下有哪些機制不會動到它們，並指出確實會改變的兩件事：第一次使用時建立 multipath map，以及重新加入 storage 時的前綴警告。另外，「前綴隔離」原本寫著每個物件都以 pve- 命名，那在 0.8.29 之後已不成立。</span>
+        </div>
+    </div>
 
     <div class="changelog-entry">
         <div class="changelog-version">v0.8.30~beta1</div>

@@ -1,3 +1,23 @@
+jt-pve-storage-dellemc (0.8.31~beta1-1) unstable; urgency=low
+
+  * BETA RELEASE. Not for production use.
+  * Documentation: what an upgrade does to volumes an older version created,
+    which is nothing. docs/NAMING_CONVENTIONS.md gains an Upgrading section
+    listing every object kind an older version could have made and confirming
+    each is still recognised, and the documentation site gains an Upgrading
+    section of its own, in both languages.
+  * That section also records what nothing does: the orphan reaper touches
+    only the node's own devices, the temporary-clone reaper works from a state
+    file old volumes are not in, and per-VM volume groups never add existing
+    volumes retroactively.
+  * And the two things that DO change after an upgrade, both fixes: a
+    multipath map may be built on first use, and adding an existing storage
+    warns that volumes already exist under its prefix.
+  * The prefix-isolation section said every object is named 'pve-<storeid>-',
+    which stopped being true in 0.8.29 when the prefix became configurable.
+
+ -- Jason Cheng <jason@jason.tools>  Fri, 29 Aug 2026 10:00:00 +0800
+
 jt-pve-storage-dellemc (0.8.30~beta1-1) unstable; urgency=high
 
   * BETA RELEASE. Not for production use.

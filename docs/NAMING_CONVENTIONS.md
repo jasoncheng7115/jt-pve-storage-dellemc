@@ -8,10 +8,70 @@ ownership gate.
 
 ## Prefix isolation
 
-Every object the plugin creates on the array is named `pve-<storeid>-...`.
-Every list, delete and cleanup path filters on that prefix first. Objects that
-do not carry it are never read, renamed or deleted — this is the safety
-boundary that lets the plugin share an array with other workloads.
+Every object the plugin creates on the array is named
+`<prefix>-<storeid>-...`, where the prefix is **`pve` unless the storage sets
+`dell-name-prefix`**. Every list, delete and cleanup path filters on that
+prefix first. Objects that do not carry it are never read, renamed or deleted —
+this is the safety boundary that lets the plugin share an array with other
+workloads.
+
+The tables below use `pve`, which is what a storage that has never set the
+option uses, and therefore what every existing installation has.
+
+### Why the prefix is configurable
+
+The namespace is the **storage id**, so two Proxmox clusters that both call a
+storage `ps1` produce the same names for the same VMID and share every volume.
+Each would list the other's disks. Within one cluster the plugin refuses two
+storages that would collide; it reads the local `storage.cfg` and cannot see
+another cluster.
+
+`dell-name-prefix` separates them. Kubernetes CSI solved the identical problem
+the same way: `external-provisioner` takes `--volume-name-prefix`, defaulting
+to `pvc`.
+
+The prefix is **not** derived from the cluster name, deliberately. A derived
+name would have to be truncated to fit PowerVault's 32-character limit, and two
+clusters whose names truncate alike would collide again while appearing not to.
+
+## Upgrading from a version before the prefix was configurable
+
+**Nothing changes and nothing needs doing.** A storage with no
+`dell-name-prefix` resolves to `pve`, which is the literal the plugin used
+before the option existed, so every volume already on the array keeps its name
+and stays recognised. This is verified by the lifecycle tests, which use the
+old names throughout, and by a test that asserts the default is byte-identical
+to the old literal.
+
+Concretely, on a plugin at 0.8.29 or later:
+
+| Object created by an older version | Still recognised |
+|---|---|
+| `pve-ps1-100-disk0` | yes, as a VM disk |
+| `pve-ps1-100-efidisk0`, `-tpmstate0`, `-cloudinit` | yes |
+| `pve-ps1-100-vmconf-before` | yes, as a config backup |
+| `pve-ps1-100-disk0.pve-snap-before` | yes, as a snapshot |
+| `pve-ps1-100-disk0.pve-base` | yes, as a template marker |
+
+Nothing acts on old volumes unattended. The orphan reaper touches only the
+node's own devices and never deletes an array volume; the temporary-clone
+reaper works from a state file this plugin wrote, which old volumes are not in;
+and per-VM volume groups are off by default and never add existing volumes
+retroactively.
+
+Two things do behave differently after an upgrade, and both are fixes:
+
+- **A multipath map may be built on first use.** Older versions could accept a
+  single `/dev/sdX` and leave the guest with no failover. From 0.8.28 the WWID
+  is claimed and the map is waited for. Seeing `multipath -a` in the journal
+  for an existing volume is expected.
+- **Adding an existing storage warns that volumes already exist** under its
+  prefix. That is the cross-cluster check; for a storage you are re-adding it
+  is expected, and the message says so.
+
+**Do not set `dell-name-prefix` on a storage that already has volumes.** It
+would leave the plugin unable to find any of them. `pvesm set` refuses it for
+that reason; the prefix can only be chosen when the storage is created.
 
 ## Mapping
 

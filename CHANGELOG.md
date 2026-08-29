@@ -7,6 +7,35 @@ Versioning: the patch number increments per release and runs to .99 before
 the minor number moves — 0.7.0, 0.7.1, … 0.7.99, then 0.8.0. Every 0.x
 release is a prerelease; 1.0.0 is the on-hardware test pass.
 
+## [0.8.31~beta1] - 2026-08-29
+
+### Documentation
+- **What an upgrade does to volumes an older version created**, which is
+  nothing, is now written down rather than implied.
+  `docs/NAMING_CONVENTIONS.md` gains an **Upgrading** section listing every
+  object kind an older version could have made — disks, EFI, TPM state,
+  cloud-init, config backups, snapshots, template markers — and confirming each
+  is still recognised. The documentation site gains an Upgrading section of its
+  own, in the sidebar, in both languages.
+
+  It also records what nothing does, because "we do not touch it" is a claim
+  worth stating: the orphan reaper touches only the node's own devices and
+  never deletes an array volume, the temporary-clone reaper works from a state
+  file that old volumes are not in, and per-VM volume groups are off by default
+  and never add existing volumes retroactively.
+
+  And the two things that **do** change after an upgrade, both of them fixes: a
+  multipath map may be built on first use, so `multipath -a` in the journal for
+  an existing volume is expected; and adding an existing storage warns that
+  volumes already exist under its prefix, which is the cross-cluster check
+  doing its job on a storage you are re-adding.
+
+- The prefix-isolation section said every object is named `pve-<storeid>-...`.
+  That stopped being true in 0.8.29, when the prefix became configurable. It
+  now says `<prefix>-<storeid>-...`, notes that the prefix is `pve` unless a
+  storage sets one, and explains why it is a configured value rather than the
+  cluster name.
+
 ## [0.8.30~beta1] - 2026-08-27
 
 ### Fixed
