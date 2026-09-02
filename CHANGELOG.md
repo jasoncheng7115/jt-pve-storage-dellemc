@@ -7,6 +7,37 @@ Versioning: the patch number increments per release and runs to .99 before
 the minor number moves — 0.7.0, 0.7.1, … 0.7.99, then 0.8.0. Every 0.x
 release is a prerelease; 1.0.0 is the on-hardware test pass.
 
+## [0.8.32~beta1] - 2026-09-02
+
+### Fixed
+- **A disk hot-added to a running VM reached the guest as a single `/dev/sdX`**,
+  with no multipath map and no failover.
+
+  `path()` took whatever `get_device_by_wwid` returned, and that falls back to
+  one sd path when there is no map. `path()` is what QEMU is given: hotplug goes
+  `Blockdev::attach` → `qemu_blockdev_options` → `path()`.
+
+  **`activate_volume` is never on that route.** PVE calls `activate_volumes`
+  when it *attaches* an existing volume and not when it *allocates* a new one,
+  so a newly created disk goes `alloc_image` → `path()` → guest. The 0.8.26 and
+  0.8.28 fixes were both to `activate_volume` and did nothing here — which is
+  why the symptom came back in a different shape after each of them.
+
+  Reported by **Alexander Gott ([@alexandergott-afk](https://github.com/alexandergott-afk))**
+  in [issue #7](https://github.com/jasoncheng7115/jt-pve-storage-dellemc/issues/7).
+
+### Changed
+- The claim-and-wait logic is one helper now, `_mapped_device`, used by both
+  `path()` and `activate_volume`. It was about to exist in two copies, and the
+  second would have drifted from the first exactly as the fix itself did.
+- The other callers that resolve a device by WWID are **deliberately
+  unchanged**, and the reasoning is worth recording rather than leaving as an
+  omission: teardown and cleanup (`free_image`, `deactivate_volume`,
+  `deactivate_storage`) want whatever device exists, and claiming a WWID that
+  is about to be removed would be wrong. Every path that *writes* —
+  `volume_resize`, `volume_snapshot`, `create_base`, `_transfer_device` — runs
+  after `path()` has already caused the map to exist.
+
 ## [0.8.31~beta1] - 2026-08-29
 
 ### Documentation

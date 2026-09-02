@@ -5,6 +5,35 @@ English version: [CHANGELOG.md](CHANGELOG.md)
 
 版本規則：小版號逐次遞增，到 .99 才進位到次版號 —— 0.7.0、0.7.1、……、0.7.99，然後 0.8.0。所有 0.x 版本都屬於預先發行版；1.0.0 的門檻是實機測試通過。
 
+## [0.8.32~beta1] - 2026-09-02
+
+### 已修正
+- **對執行中的虛擬機熱新增磁碟時，客體拿到的是單一的 `/dev/sdX`**，沒有 multipath map、
+  也沒有任何路徑備援。
+
+  `path()` 直接採用 `get_device_by_wwid` 回傳的東西，而它在沒有 map 時會退回單一的 sd
+  路徑。而 `path()` 正是交給 QEMU 的那個值：熱插拔的路徑是
+  `Blockdev::attach` → `qemu_blockdev_options` → `path()`。
+
+  **`activate_volume` 根本不在那條路徑上。** PVE 是在**掛載**既有磁碟區時才呼叫
+  `activate_volumes`，**配置**新磁碟區時不會，所以新建立的磁碟走的是
+  `alloc_image` → `path()` → 客體。0.8.26 與 0.8.28 兩次修的都是 `activate_volume`，
+  對這裡完全沒有作用 —— 這也是為什麼每修一次之後，症狀又換個樣子回來。
+
+  由 **Alexander Gott（[@alexandergott-afk](https://github.com/alexandergott-afk)）**
+  在 [issue #7](https://github.com/jasoncheng7115/jt-pve-storage-dellemc/issues/7)
+  回報。
+
+### 已變更
+- 「認領並等待」的邏輯現在集中成一個輔助函式 `_mapped_device`，由 `path()` 與
+  `activate_volume` 共用。它本來就要變成兩份副本了，而第二份必然會與第一份分歧 ——
+  就像這個修正本身所經歷的那樣。
+- 其他以 WWID 解析裝置的呼叫點**刻意維持不變**，而理由值得記下來，而不是當成疏漏：
+  拆除與清理路徑（`free_image`、`deactivate_volume`、`deactivate_storage`）要的就是
+  「現在存在的那個裝置」，而去認領一個即將被移除的 WWID 是錯的；至於每一條會**寫入**的
+  路徑 —— `volume_resize`、`volume_snapshot`、`create_base`、`_transfer_device` ——
+  都在 `path()` 已經促成 map 存在之後才執行。
+
 ## [0.8.31~beta1] - 2026-08-29
 
 ### 文件

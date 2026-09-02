@@ -2226,4 +2226,71 @@ SKIP: {
     is_deeply(\@warnings, [], '... and does not warn about what it could not see');
 }
 
+# ---------------------------------------------------------------------------
+# path() is what QEMU is given, so it must be a map (issue #7)
+#
+# activate_volume was fixed in 0.8.26 and 0.8.28, and that did nothing for a
+# disk hot-added to a running VM. PVE calls activate_volumes when it ATTACHES
+# an existing volume and NOT when it allocates a new one, so the route is
+# alloc_image -> path() -> QEMU, and activate_volume is never on it.
+#
+# path() was taking whatever get_device_by_wwid returned, which falls back to a
+# single /dev/sdX when there is no map. The guest then runs on one path with no
+# failover, and nothing says so.
+# ---------------------------------------------------------------------------
+
+{
+    no warnings 'redefine', 'once';
+    my @claimed;
+    my $claimed_at;
+
+    local *PVE::Storage::Custom::DellEMC::Common::BlockBase::get_multipath_device =
+        sub {
+            return undef unless defined $claimed_at;
+            return time() >= $claimed_at + 1 ? '/dev/mapper/3600hot' : undef;
+        };
+    local *PVE::Storage::Custom::DellEMC::Common::BlockBase::get_device_by_wwid =
+        sub { '/dev/sdz' };
+    local *PVE::Storage::Custom::DellEMC::Common::BlockBase::multipath_claim_wwid =
+        sub { push @claimed, $_[0]; $claimed_at = time(); return 1 };
+    local *PVE::Storage::Custom::DellEMC::Common::BlockBase::is_block_device = sub { 1 };
+    local *Test::Plugin::_array_get_wwid = sub { '3600hot' };
+
+    Test::Plugin->reset_state();
+    $Test::Plugin::VOLUMES{'pve-t1-100-disk0'} =
+        { size => 1024 * 1024, used => 0, wwid => '3600hot' };
+
+    my $scfg = { 'dell-portal' => '10.0.0.1' };
+    my $dev = Test::Plugin->path($scfg, 'vm-100-disk-0', 't1');
+
+    is($dev, '/dev/mapper/3600hot',
+        'path() hands QEMU the multipath map, not the single sd path')
+        or diag('a hot-added disk reaches the guest through path() alone:'
+              . ' activate_volume is not called when PVE allocates a volume');
+    is_deeply(\@claimed, ['3600hot'],
+        '... claiming the WWID on the way, since nothing else will');
+}
+
+{
+    no warnings 'redefine', 'once';
+    # A map already there: no claim, no wait. path() is called often.
+    my @claimed;
+    local *PVE::Storage::Custom::DellEMC::Common::BlockBase::get_multipath_device =
+        sub { '/dev/mapper/3600hot' };
+    local *PVE::Storage::Custom::DellEMC::Common::BlockBase::get_device_by_wwid =
+        sub { '/dev/mapper/3600hot' };
+    local *PVE::Storage::Custom::DellEMC::Common::BlockBase::multipath_claim_wwid =
+        sub { push @claimed, $_[0]; 1 };
+    local *PVE::Storage::Custom::DellEMC::Common::BlockBase::is_block_device = sub { 1 };
+    local *Test::Plugin::_array_get_wwid = sub { '3600hot' };
+
+    Test::Plugin->reset_state();
+    $Test::Plugin::VOLUMES{'pve-t1-100-disk0'} =
+        { size => 1024 * 1024, used => 0, wwid => '3600hot' };
+
+    my $dev = Test::Plugin->path({ 'dell-portal' => '10.0.0.1' }, 'vm-100-disk-0', 't1');
+    is($dev, '/dev/mapper/3600hot', 'an existing map is returned directly');
+    is_deeply(\@claimed, [], '... with no claim, because path() runs often');
+}
+
 done_testing();

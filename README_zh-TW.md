@@ -6,7 +6,7 @@ Dell EMC 儲存伺服器的 Proxmox VE 儲存外掛。
 
 > ## ⚠️ BETA 版軟體 —— 安裝前請務必閱讀
 >
-> **這是 beta 版（0.8.31~beta1）。四個產品系列裡，有兩個已經在實機上跑過，兩個沒有。**
+> **這是 beta 版（0.8.32~beta1）。四個產品系列裡，有兩個已經在實機上跑過，兩個沒有。**
 >
 > 一台韌體為 `GT280R011-01`、走 Fibre Channel 的 **PowerVault ME4024**，自 0.7.65 起完整通過首次執行測試，並在 0.7.66 通過其後的生命週期項目：客體作業系統從儲存伺服器磁碟區開機、擴充磁碟、`vzdump --mode snapshot` 與還原、LXC 容器，以及節點重開機。
 >
@@ -24,7 +24,7 @@ Dell EMC 儲存伺服器的 Proxmox VE 儲存外掛。
 
 ## 專案狀態
 
-> **版本 0.8.31~beta1 — 四個 storage type 程式碼皆已完成。其中一個已在實機上完整跑過：PowerVault ME，走 Fibre Channel，機型 ME4024；另有一台 PowerStore 跑過其中一部分。**
+> **版本 0.8.32~beta1 — 四個 storage type 程式碼皆已完成。其中一個已在實機上完整跑過：PowerVault ME，走 Fibre Channel，機型 ME4024；另有一台 PowerStore 跑過其中一部分。**
 > PowerFlex 與 Unity XT 從未在任何儲存伺服器上執行過，PowerVault 這邊的 iSCSI 路徑也沒有 —— 對這些而言，所有面向儲存伺服器的細節（REST 路徑與欄位名稱、SCSI vendor／product 字串、WWN 轉 WWID 換算）都還沒驗證。因此這仍然是一個「拿來測試」的版本，請只在非正式環境的叢集與儲存伺服器上使用。1.0.0 的門檻是**每一個**產品系列都通過實機測試，而不是再寫更多程式。
 
 | 階段 | 內容 | 狀態 |

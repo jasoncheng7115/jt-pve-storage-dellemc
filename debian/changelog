@@ -1,3 +1,24 @@
+jt-pve-storage-dellemc (0.8.32~beta1-1) unstable; urgency=high
+
+  * BETA RELEASE. Not for production use.
+  * Fixed: a disk hot-added to a running VM reached the guest as a single
+    /dev/sdX with no multipath map and no failover. path() took whatever
+    get_device_by_wwid returned, which falls back to one sd path when there is
+    no map, and path() is what QEMU is given: hotplug goes
+    Blockdev::attach -> qemu_blockdev_options -> path(), and activate_volume is
+    never on that route because PVE calls activate_volumes when it ATTACHES an
+    existing volume and not when it ALLOCATES a new one. The 0.8.26 and 0.8.28
+    fixes to activate_volume therefore did nothing for it. Reported by
+    Alexander Gott (@alexandergott-afk) in issue #7.
+  * The claim-and-wait logic is now one helper, _mapped_device, used by both
+    path() and activate_volume, rather than a second copy that could drift
+    from the first.
+  * The other callers that resolve a device by WWID are deliberately
+    unchanged: teardown and cleanup want whatever exists, and every path that
+    WRITES runs after path() has already caused the map to exist.
+
+ -- Jason Cheng <jason@jason.tools>  Tue, 02 Sep 2026 11:00:00 +0800
+
 jt-pve-storage-dellemc (0.8.31~beta1-1) unstable; urgency=low
 
   * BETA RELEASE. Not for production use.

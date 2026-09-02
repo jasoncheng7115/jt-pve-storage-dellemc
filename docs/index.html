@@ -175,7 +175,7 @@
     <div class="hero__glow"></div>
     <div class="hero__glow-left"></div>
     <div class="hero__content">
-        <div class="hero__badge">v0.8.31~beta1 <span class="hero__badge-sep"></span> MIT License</div>
+        <div class="hero__badge">v0.8.32~beta1 <span class="hero__badge-sep"></span> MIT License</div>
         <h1 class="hero__title">jt-pve-storage-dellemc</h1>
         <p class="hero__project-desc">
             <span class="lang-en">Dell EMC Storage Plugins for Proxmox VE</span>
@@ -1191,8 +1191,8 @@ DellPowerFlexPlugin                  <span class="comment"># no SCSI LUN, no mul
         <span class="lang-zh">驗證狀態</span>
     </h2>
     <p class="section-subtitle">
-        <span class="lang-en">3,411 unit tests run without an array or a device. What they cannot tell you is whether the endpoints exist, whether the field names are right, or whether a device ever appears &mdash; only an array can, and exactly one has.</span>
-        <span class="lang-zh">3,411 個單元測試不需要儲存伺服器或實體裝置即可執行。它們無法告訴你的是：端點是否存在、欄位名稱是否正確、裝置到底會不會出現 &mdash; 那隻有儲存伺服器能回答，而目前只有一台回答過。</span>
+        <span class="lang-en">3,415 unit tests run without an array or a device. What they cannot tell you is whether the endpoints exist, whether the field names are right, or whether a device ever appears &mdash; only an array can, and exactly one has.</span>
+        <span class="lang-zh">3,415 個單元測試不需要儲存伺服器或實體裝置即可執行。它們無法告訴你的是：端點是否存在、欄位名稱是否正確、裝置到底會不會出現 &mdash; 那隻有儲存伺服器能回答，而目前只有一台回答過。</span>
     </p>
 
     <h3>
@@ -1352,6 +1352,15 @@ DellPowerFlexPlugin                  <span class="comment"># no SCSI LUN, no mul
         <span class="lang-en">Changelog</span>
         <span class="lang-zh">變更紀錄</span>
     </h2>
+
+    <div class="changelog-entry">
+        <div class="changelog-version">v0.8.32~beta1</div>
+        <div class="changelog-date">2026-09-02</div>
+        <div class="changelog-summary">
+            <span class="lang-en">A disk hot-added to a running VM reached the guest as a single /dev/sdX with no multipath map and no failover. path() is what QEMU is given, and it took whatever get_device_by_wwid returned, which falls back to one sd path. activate_volume is never on that route: PVE activates a volume when it attaches an existing one, not when it allocates a new one, so the 0.8.26 and 0.8.28 fixes did nothing for it. Reported by Alexander Gott (@alexandergott-afk), issue #7.</span>
+            <span class="lang-zh">對執行中的虛擬機熱新增磁碟時，客體拿到的是單一 /dev/sdX，沒有 multipath map、也沒有備援。path() 才是交給 QEMU 的那個值，而它直接採用 get_device_by_wwid 回傳的東西，那在沒有 map 時會退回單一 sd 路徑。activate_volume 根本不在那條路徑上：PVE 是在掛載既有磁碟區時才啟用，配置新磁碟區時不會，所以 0.8.26 與 0.8.28 的修正對它毫無作用。由 Alexander Gott（@alexandergott-afk）在 issue #7 回報。</span>
+        </div>
+    </div>
 
     <div class="changelog-entry">
         <div class="changelog-version">v0.8.31~beta1</div>

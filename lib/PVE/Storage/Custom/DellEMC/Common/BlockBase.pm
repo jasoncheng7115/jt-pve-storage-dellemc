@@ -2284,6 +2284,55 @@ sub rename_volume {
 # Volume activation
 # ---------------------------------------------------------------------------
 
+# The multipath map for a WWID, claiming and waiting for it when the node has
+# paths but no map yet.
+#
+# get_device_by_wwid falls back to /dev/disk/by-id/scsi-*<wwid>*, which
+# resolves to a single /dev/sdX. Handing that to a guest works, and leaves it
+# with no failover, invisibly, until a path drops. So anywhere the answer is
+# given to something that will USE it, the map has to be built first: under the
+# default 'find_multipaths strict' nothing else on the node will do it, because
+# the WWID must be in /etc/multipath/wwids and only this plugin puts it there.
+#
+# Returns the map; or the single path when there genuinely is only one, since a
+# one-path LUN legitimately has no map; or undef when there is no device at
+# all. Never dies - each caller has its own answer for that.
+#
+# Cheap on the ordinary path: a node that already has the map returns at the
+# first line, and the wait is reached once per volume per node.
+sub _mapped_device {
+    my ($class, $wwid, %opts) = @_;
+
+    return undef unless defined $wwid && length $wwid;
+
+    my $mpath = eval { get_multipath_device($wwid) };
+    return $mpath if $mpath && is_block_device($mpath);
+
+    my $existing = eval { get_device_by_wwid($wwid) };
+    return undef unless $existing && is_block_device($existing);
+
+    eval { multipath_claim_wwid($wwid) };
+
+    # multipathd builds the map asynchronously, so a check with no wait behind
+    # it reports "no map" for a map that is about to exist.
+    my $deadline = time() + MAP_SETTLE_TIMEOUT;
+    while (1) {
+        my $now = eval { get_multipath_device($wwid) };
+        return $now if $now && is_block_device($now);
+        last if time() >= $deadline;
+        select(undef, undef, undef, 0.25);
+    }
+
+    $class->_warn_once($opts{storeid} // $CURRENT_STOREID // '', "nomap-$wwid",
+        "No multipath map on this node for WWID $wwid; using '$existing'."
+      . " If the array presents more than one path this guest has no"
+      . " failover: check 'multipath -ll', and that the WWID is in"
+      . " /etc/multipath/wwids.")
+        if $opts{warn};
+
+    return $existing;
+}
+
 sub activate_volume {
     my ($class, $storeid, $scfg, $volname, $snapname, $cache) = @_;
     local $CURRENT_STOREID = $storeid;
@@ -2351,63 +2400,11 @@ sub activate_volume {
         # dropped. Reported on a PowerStore over FC in issue #7, where the
         # array showed live LUNs, the VM was running, and 'multipath -ll' was
         # empty.
-        my $mpath = eval { get_multipath_device($wwid) };
-        if ($mpath && is_block_device($mpath)) {
+        my $ready = $class->_mapped_device($wwid, storeid => $storeid, warn => 1);
+        if ($ready) {
             eval { $WWID_STATE->track_wwid($storeid, $wwid) };
             $class->_reconcile_device_size($scfg, $storeid, $volname,
-                $mpath, $vol);
-            return 1;
-        }
-
-        # Paths but no map. Claim the WWID and give multipathd a moment: under
-        # 'strict' it builds a map only for a WWID in /etc/multipath/wwids, and
-        # nothing else on this path ever writes that entry.
-        my $existing = eval { get_device_by_wwid($wwid) };
-        if ($existing && is_block_device($existing)) {
-            eval { multipath_claim_wwid($wwid) };
-
-            # And then actually give it that moment.
-            #
-            # 'multipathd add path' returns before the map exists: multipathd
-            # builds it asynchronously. Checking immediately, which is what
-            # this did when it was written, almost always misses - so a node
-            # seeing the volume for the first time settled for the bare sd
-            # path every time. That is exactly a live-migration target, which
-            # is where it was noticed (issue #7).
-            #
-            # Bounded and short, because this is the VM start path. It is only
-            # reached when there is no map at all: once one exists the check
-            # above returns first, so a running node never waits here.
-            my $now;
-            my $deadline = time() + MAP_SETTLE_TIMEOUT;
-            while (1) {
-                $now = eval { get_multipath_device($wwid) };
-                last if $now && is_block_device($now);
-                last if time() >= $deadline;
-                select(undef, undef, undef, 0.25);
-            }
-
-            if ($now && is_block_device($now)) {
-                eval { $WWID_STATE->track_wwid($storeid, $wwid) };
-                $class->_reconcile_device_size($scfg, $storeid, $volname,
-                    $now, $vol);
-                return 1;
-            }
-
-            # Still no map. A LUN with a single path legitimately has none, so
-            # this is not fatal and the sd device is used as before - but say
-            # so once, because a multi-path LUN running on one path is a
-            # failover that will not happen.
-            $class->_warn_once($storeid, "nomap-$wwid",
-                "Volume '$volname' is in use through '$existing' with no"
-              . " multipath map on this node. If the array presents more than"
-              . " one path, this guest has no failover: check"
-              . " 'multipath -ll' and that this WWID is in"
-              . " /etc/multipath/wwids.");
-
-            eval { $WWID_STATE->track_wwid($storeid, $wwid) };
-            $class->_reconcile_device_size($scfg, $storeid, $volname,
-                $existing, $vol);
+                $ready, $vol);
             return 1;
         }
     }
@@ -2571,7 +2568,16 @@ sub path {
                          : "/dev/mapper/unknown-$target";
     }
 
-    my $device = get_device_by_wwid($wwid);
+    # A MAP, not whatever device happens to exist.
+    #
+    # This is the path handed to QEMU, so a bare /dev/sdX here is a guest
+    # running on one path with no failover. It is reached without
+    # activate_volume ever running: PVE calls activate_volumes when it ATTACHES
+    # an existing volume, and not when it allocates a new one, so hot-adding a
+    # disk to a running VM went straight from alloc_image to path() to the
+    # guest (issue #7). Fixing activate_volume in 0.8.26 did nothing for that
+    # route.
+    my $device = $class->_mapped_device($wwid, storeid => $storeid, warn => 1);
 
     if ((!$device || !is_block_device($device)) && $fresh) {
         $class->_rescan_transport($scfg);
