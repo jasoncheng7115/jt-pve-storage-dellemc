@@ -64,6 +64,7 @@ ME4024 跑過更多；ME 那台建立了什麼、又沒有建立什麼，見上�
 | 1 MB 設定磁碟區的完整生命週期：建立、對應、重新掃描、裝置出現、mkfs、掛接、寫入、解除對應 | issue #2，整段被量到八秒 |
 
 | **儲存伺服器會拒絕刪除仍在 volume group 裡的磁碟區** | 由 issue #3 的回報者針對他自己的儲存伺服器說明，這也是為什麼「移出群組」是必要步驟而不是整理 |
+| **儲存伺服器會拒絕單獨還原「寫入順序一致」volume group 的其中一個成員** | issue #12 引述了回報者儲存伺服器的拒絕訊息：`POST /volume/{id}/restore` 得到 HTTP 400、`0xE0A060030013`。這就是每台 VM 的群組建立時要關閉這項設定的原因 |
 | **資料路徑是 Fibre Channel** | 在 issue #3 中回答。所以實際被運用到的是主機端的 FC 那一半，PowerStore 上的 iSCSI 完全沒有跑過 |
 
 **在 PowerStore 上仍未跑過的**：快照刪除、倒回、磁碟區刪除、擴充、節點之間的線上遷移、
@@ -347,7 +348,7 @@ host、加入 initiator、metrics/generate）：每一個線上鍵都與 Dell �
 | `state`、`type` | 是否可用、Primary 或 Snapshot | 範例中是 `Ready` 與 `Primary`，正是本外掛送出的過濾值 |
 | `protection_data.source_id` | 精簡複製是從哪個快照來的 | 範例的 `protection_data` 帶有 `source_id`、`parent_id`、`family_id` |
 | host 上的 `host_group_id`、`hosts`、`host_ids`、`add_host_ids`、`remove_host_ids` | host group，供 `dell-host-mode host-group` 使用。**host 的 `host_group_id` 是單數，而磁碟區的 `volume_groups` 是清單**，這正是「一個 host 最多屬於一個群組」的依據；在 Dell 自己的用戶端裡，`add_host_ids` 與 `remove_host_ids` 在同一次 PATCH 中互斥，所以群組之間的搬移不是原子操作。欄位名稱讀自 `python-powerstore` 的 `modify_host_group` |
-| `volumes`、`volume_groups`、`protection_policy_id`、`is_write_order_consistent` | volume group，供 `pstore-volume-group-per-vm` 使用。`volume_groups` 是讀在**磁碟區**上的，用來在刪除前找出它實際所屬的群組，因為**PowerStore 會拒絕刪除仍是群組成員的磁碟區**（已在客戶的儲存伺服器上確認，issue #3）| 這些名稱取自 Dell 自己的 `volumegroup` ansible 模組。**成員的快照會不會出現在 `volumes` 裡尚未驗證**，因此「群組是否為空」的判斷只計算 `type` 為 `Primary` 的成員，兩種答案都安全 |
+| `volumes`、`volume_groups`、`protection_policy_id`、`is_write_order_consistent` | volume group，供 `pstore-volume-group-per-vm` 使用。`volume_groups` 是讀在**磁碟區**上的，用來在刪除前找出它實際所屬的群組，因為**PowerStore 會拒絕刪除仍是群組成員的磁碟區**（已在客戶的儲存伺服器上確認，issue #3）。建立群組時 `is_write_order_consistent` 一律送出 **false**，還原之前也會先讀取它，因為**儲存伺服器會拒絕單獨還原一致性群組的其中一個成員**（已在客戶的儲存伺服器上確認，issue #12）| 這些名稱取自 Dell 自己的 `volumegroup` ansible 模組。**成員的快照會不會出現在 `volumes` 裡尚未驗證**，因此「群組是否為空」的判斷只計算 `type` 為 `Primary` 的成員，兩種答案都安全。**「建立時關閉這項設定的群組可以還原單一成員」以及「以 `PATCH` 可以關閉既有群組的這項設定」都尚未驗證**：Dell 的白皮書 H18156 兩者都有記載，`python-powerstore` 與 `gopowerstore` 也都會送出這個 `PATCH`，但都還沒有在實機上執行過。依同樣三個來源，省略這個欄位時儲存伺服器的預設值是**開啟**，所以這個欄位一律明確送出 |
 | `creation_timestamp` | 快照時間 | 範例是 `2022-01-06T05:41:59.381459+00:00` —— 小數秒與明確的時區位移，兩者都已處理 |
 | `appliance_id` | volume 位於哪一台 appliance | 範例中有 |
 | `physical_total`、`physical_used`、`total_physical`、`total_used` | 容量，取自指標記錄 | **未驗證** |

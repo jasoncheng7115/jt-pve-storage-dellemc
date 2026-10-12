@@ -7,6 +7,65 @@ Versioning: the patch number increments per release and runs to .99 before
 the minor number moves — 0.7.0, 0.7.1, … 0.7.99, then 0.8.0. Every 0.x
 release is a prerelease; 1.0.0 is the on-hardware test pass.
 
+## [0.8.33~beta1] - 2026-10-12
+
+### Fixed
+- **Every `qm rollback` was refused on a PowerStore storage with
+  `pstore-volume-group-per-vm` set**, from 0.8.18 to 0.8.32:
+
+  > *Refreshing or Restoring an individual member volume of a write order
+  > consistent Volume Group is not supported. (0xE0A060030013)*
+
+  The plugin created each VM's volume group write-order consistent, and
+  PowerStore does not restore one member of such a group. Proxmox VE rolls a
+  guest back one disk at a time and offers a storage plugin no other way, so
+  no rollback could succeed. The setting was there to keep a group snapshot of
+  a multi-disk VM consistent, and this plugin takes no group snapshot: it
+  snapshots and restores one volume at a time.
+
+  New groups are created with write-order consistency **off**, and the field
+  is always sent. Leaving it out would not have been enough: the array
+  switches it on by default, as Dell's white paper H18156, its ansible module
+  and its Go client all state.
+
+  **The host mode has no part in this.** The report came from a storage using
+  `dell-host-mode host-group`; every host mode was affected.
+
+  Reported by **Alexander Gott ([@alexandergott-afk](https://github.com/alexandergott-afk))**
+  in [issue #12](https://github.com/jasoncheng7115/jt-pve-storage-dellemc/issues/12).
+
+- **A rollback the array was going to refuse left the guest stopped and
+  locked.** PVE checks every disk, then stops the guest and sets
+  `lock: rollback`, then restores; a refusal at the last step leaves the first
+  two done. The plugin now answers at the check: a disk in a write-order
+  consistent group it will not change is refused before anything is stopped,
+  with a message naming the group and the setting. That covers a group named
+  by `pstore-volume-group` as well, which PowerStore Manager creates
+  consistent by default. A guest left locked by an earlier attempt needs
+  `qm unlock <vmid>`.
+
+### Changed
+- **Groups created by 0.8.18 to 0.8.32 are corrected when first needed, not
+  swept.** When a disk in one is rolled back, the plugin switches write-order
+  consistency off on that one group, says so in the task log, and then
+  restores. It does so only for a group carrying the marker this plugin wrote,
+  and only while no protection policy is attached: a policy means scheduled
+  group snapshots somebody chose, and whether those are consistent is theirs
+  to decide. Such a group is left as it is and the rollback is refused. None
+  of this depends on the option still being set, since a storage that had it
+  enabled still has the groups.
+
+  **Not verified on an array:** that the setting can be changed on an existing
+  group, and that a member restores once it is off. Dell documents both
+  (H18156, and both of its clients send the same `PATCH`). The refusal itself
+  is quoted from a customer's array.
+- **A group snapshot taken in PowerStore Manager of a per-VM group is no
+  longer write-order consistent.** It still covers every disk of the VM, but
+  the members may be captured a moment apart. The array does not offer both:
+  the setting that makes a group snapshot consistent is the one that refuses a
+  restore of one member. `docs/CONFIGURATION.md` has a new section on it,
+  *Volume groups and `qm rollback`*.
+
 ## [0.8.32~beta1] - 2026-09-02
 
 ### Fixed

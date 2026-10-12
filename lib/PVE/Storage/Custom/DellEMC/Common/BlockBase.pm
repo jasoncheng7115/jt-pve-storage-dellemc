@@ -416,6 +416,17 @@ sub _array_snapshot_delete   { $_[0]->_abstract('_array_snapshot_delete') }
 sub _array_snapshot_list     { $_[0]->_abstract('_array_snapshot_list') }
 sub _array_snapshot_get      { $_[0]->_abstract('_array_snapshot_get') }
 sub _array_snapshot_rollback { $_[0]->_abstract('_array_snapshot_rollback') }
+
+# Is there anything about this VOLUME, apart from its snapshots, that the
+# array will refuse a restore for? Dies with the reason when there is.
+#
+# Optional. It exists because of WHEN PVE asks volume_rollback_is_possible:
+# for every volume of the guest, before it stops the guest, sets
+# 'lock: rollback' and starts restoring. A refusal there costs nothing. The
+# same refusal from the restore itself leaves a stopped, locked guest behind
+# and, on a guest with several disks, possibly some of them already rolled
+# back.
+sub _array_rollback_precheck { return 1 }
 sub _array_clone             { $_[0]->_abstract('_array_clone') }
 
 sub _array_ensure_host   { $_[0]->_abstract('_array_ensure_host') }
@@ -2992,6 +3003,14 @@ sub volume_rollback_is_possible {
     my ($target) = grep { ($_->{name} // '') eq $snap } @$snapshots;
     die "can't rollback, snapshot '$snap' does not exist on"
       . " '$storeid:$volname'\n" unless $target;
+
+    # Before the option below, which is about snapshots: this is about the
+    # volume, and no setting here makes the array restore what it will not.
+    eval {
+        $class->_array_rollback_precheck($scfg, $storeid,
+            $class->_array_volname($storeid, $volname));
+    };
+    die "Cannot roll back '$storeid:$volname' to '$snap': $@" if $@;
 
     return 1 if $class->_opt($scfg, 'rollback-any-snapshot', 0);
 

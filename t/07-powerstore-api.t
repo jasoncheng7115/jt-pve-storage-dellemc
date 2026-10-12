@@ -1133,12 +1133,51 @@ ok(length($long) > 63, 'and do use the room PowerStore allows');
         'the ownership marker travels in the description, which is what'
       . ' proves later that this plugin may delete the group');
 
-    # A JSON boolean, not the string "true" and not 1. A group whose members
-    # are snapshotted independently can restore a multi-disk guest to a state
-    # it was never in, so this is the flag that has to arrive as a boolean.
+    # Present, and false. This assertion used to read ": true", and that was
+    # the defect written down as a requirement: a write-order consistent group
+    # refuses a restore of one member, which is every 'qm rollback' (issue
+    # #12). Absent is the same as true - Dell's white paper, its ansible module
+    # and its Go client all say the array defaults to it - so the key being
+    # there is half of what is checked.
+    ok(exists $body->{is_write_order_consistent},
+        'write-order consistency is SENT: left out, the array turns it on');
     my $raw = $ua->last_request->content;
-    like($raw, qr/"is_write_order_consistent"\s*:\s*true/,
-        'write-order consistency is a JSON boolean');
+    like($raw, qr/"is_write_order_consistent"\s*:\s*false/,
+        '... as a JSON false, not 0 and not the string');
+}
+
+# What a rollback reads before restoring a member, and how it changes the
+# setting on a group an earlier version created consistent.
+{
+    my ($api, $ua) = make_api(handler => sub {
+        my ($req, $key) = @_;
+        return json_response(200, { id => 'vg-1', name => 'pve-ps1-104-vg',
+                is_write_order_consistent => JSON::true })
+            if $key eq 'GET /api/rest/volume_group/vg-1';
+        return json_response(404, { messages => [] })
+            if $key eq 'GET /api/rest/volume_group/vg-gone';
+        return json_response(204, {});
+    });
+
+    my $group = $api->volume_group_consistency('vg-1');
+    ok($group->{is_write_order_consistent}, 'the setting is read as a truth value');
+    like($ua->query_of->{select}, qr/\bis_write_order_consistent\b/,
+        '... and asked for by name, as every field has to be');
+    like($ua->query_of->{select}, qr/\bprotection_policy_id\b/,
+        '... together with what decides whether it may be changed');
+
+    is($api->volume_group_consistency('vg-gone'), undef,
+        'a group that is not there is undef, not an error');
+
+    $api->volume_group_set_write_order_consistent('vg-1', 0);
+    is($ua->last_request->method, 'PATCH', 'the setting is changed with a PATCH');
+    like($ua->last_request->uri, qr{/api/rest/volume_group/vg-1\z},
+        '... on the group itself');
+    is_deeply([ sort keys %{ decode_json($ua->last_request->content) } ],
+        ['is_write_order_consistent'],
+        '... carrying only that field, so nothing else about the group moves');
+    like($ua->last_request->content, qr/"is_write_order_consistent"\s*:\s*false/,
+        '... as a JSON false');
 }
 
 {

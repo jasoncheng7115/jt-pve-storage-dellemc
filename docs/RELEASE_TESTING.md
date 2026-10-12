@@ -212,7 +212,12 @@ the same deletion, with the reason logged. Reassign a disk to another VM
 (`qm move_disk --target-vmid`) and confirm it moves group. Put one of the
 plugin's volumes into a group of your own and confirm it can still be deleted:
 the array refuses to delete a member, so a volume it will not remove is a
-volume nobody can delete.
+volume nobody can delete. Snapshot the VM and roll it back: the rollback
+succeeds and the group is not changed. Then switch write-order consistency
+**on** for that group in PowerStore Manager and roll back again: the plugin
+switches it off, says so in the task log, and the rollback succeeds. Attach a
+protection policy as well and the rollback is refused before the guest is
+stopped, with a message naming the group.
 
 **PowerVault ME** — a storage id long enough to overflow 32 bytes is refused
 at creation with a message naming the limit, not truncated.

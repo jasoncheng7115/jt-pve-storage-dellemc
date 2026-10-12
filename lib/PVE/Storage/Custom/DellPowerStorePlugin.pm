@@ -336,8 +336,15 @@ sub on_update_hook_full {
 # Per-VM volume groups  ('pstore-volume-group-per-vm')
 #
 # One volume group per VM, so an operator can apply a protection policy or take
-# a consistent group snapshot per VM from PowerStore Manager without
-# maintaining the membership by hand. Requested in issue #3.
+# a group snapshot per VM from PowerStore Manager without maintaining the
+# membership by hand. Requested in issue #3.
+#
+# The groups are NOT write-order consistent, and that is a choice between two
+# things the array will not do together: a consistent group refuses a restore
+# of one member, and one member at a time is the only way PVE ever asks for a
+# rollback (issue #12). An operator who wants consistent group snapshots more
+# than 'qm rollback' can switch the setting on for a group; see
+# _vg_prepare_restore for what this plugin then does and does not undo.
 #
 # The whole design follows from one fact: a PowerStore volume belongs to AT
 # MOST ONE volume group. Dell's own ansible module reads volume_groups[0] and
@@ -604,6 +611,137 @@ sub _vg_reap_if_empty {
     eval { $api->volume_group_delete($group_id, %opts) };
     warn "Empty volume group '" . ($group->{name} // $group_id)
        . "' could not be removed: $@" if $@;
+
+    return;
+}
+
+# The write-order consistent volume group this volume is a member of, or
+# undef when it is in none. Dies when the array could not be asked: the two
+# callers want different things from an unanswered question.
+#
+# A group that does not SAY whether it is consistent is not reported. The
+# restore then goes ahead and the array gives its own answer, which is better
+# than refusing a rollback on a field some firmware may not return.
+sub _vg_consistent_group_of {
+    my ($class, $scfg, $storeid, $volume_id, %opts) = @_;
+
+    my $api = $class->_api($scfg, storeid => $storeid, %opts);
+
+    my $groups = $api->volume_groups_of($volume_id, %opts);
+    return undef unless ref($groups) eq 'ARRAY';
+
+    for my $group (@$groups) {
+        my $full = $api->volume_group_consistency($group->{id}, %opts);
+        next unless ref($full) eq 'HASH';
+        return $full if $full->{is_write_order_consistent};
+    }
+
+    return undef;
+}
+
+# May this plugin switch a group's write-order consistency off?
+#
+# Only for a group it created, proven by the marker and never by the name, and
+# only while nobody has attached a protection policy to it. Every per-VM group
+# made by 0.8.18 to 0.8.32 is consistent because this plugin said so, and
+# undoing its own setting on its own object is a repair. A policy on the group
+# is scheduled group snapshots that somebody chose, and whether those are
+# consistent is theirs to decide.
+sub _vg_may_relax {
+    my ($class, $group) = @_;
+
+    return 0 unless $class->_vg_is_ours($group);
+    return 0 if defined $group->{protection_policy_id}
+        && length $group->{protection_policy_id};
+
+    return 1;
+}
+
+# Why a restore is being refused, as a clause for the caller to put its own
+# opening on. It names the group and the setting because the array's own
+# refusal names neither, and it is the group an operator has to go and find.
+sub _vg_restore_refusal {
+    my ($class, $group) = @_;
+
+    my $name = $group->{name} // $group->{id} // '?';
+
+    my $hands_off = $class->_vg_is_ours($group)
+        ? "The group carries a protection policy, so its group snapshots are"
+        . " somebody's to decide about and the setting is left as it is."
+        : "This plugin did not create that group, so the setting is left as"
+        . " it is.";
+
+    return "it is a member of the PowerStore volume group '$name', which is"
+         . " write-order consistent, and the array does not restore a single"
+         . " member of such a group. $hands_off\n"
+         . "  To roll back from Proxmox VE, switch write-order consistency"
+         . " off on '$name' in PowerStore Manager. To keep it, restore the"
+         . " whole group from a group snapshot there instead.\n";
+}
+
+sub _array_rollback_precheck {
+    my ($class, $scfg, $storeid, $volume, %opts) = @_;
+
+    my $group = eval {
+        my $id = $class->_volume_id($scfg, $volume, %opts);
+        defined $id
+            ? $class->_vg_consistent_group_of($scfg, $storeid, $id, %opts)
+            : undef;
+    };
+    my $err = $@;
+
+    # Could not ask. That is not a reason to refuse a rollback: the restore
+    # puts the real question to the array and reports what it says.
+    return 1 if $err || !$group;
+
+    # Ours and unprotected: _vg_prepare_restore deals with it when the restore
+    # runs. Nothing is changed from a check.
+    return 1 if $class->_vg_may_relax($group);
+
+    die $class->_vg_restore_refusal($group);
+}
+
+# Make a restore of this one volume acceptable to the array, where that is
+# this plugin's to do.
+#
+# Not gated on the option, for the reason cleanup is not (rule 4 above): a
+# storage that had per-VM grouping enabled still has the groups, and a volume
+# is still in one after the option is switched off.
+sub _vg_prepare_restore {
+    my ($class, $scfg, $storeid, $volume, $volume_id, %opts) = @_;
+
+    my $group = eval {
+        $class->_vg_consistent_group_of($scfg, $storeid, $volume_id, %opts);
+    };
+    my $err = $@;
+
+    if ($err) {
+        warn "Could not read the volume group membership of '$volume' before"
+           . " restoring it: $err";
+        return;
+    }
+    return unless $group;
+
+    die $class->_vg_restore_refusal($group)
+        unless $class->_vg_may_relax($group);
+
+    my $name = $group->{name} // $group->{id};
+
+    eval {
+        $class->_api($scfg, storeid => $storeid, %opts)
+            ->volume_group_set_write_order_consistent($group->{id}, 0, %opts);
+    };
+    $err = $@;
+
+    die "its volume group '$name' is write-order consistent, which makes the"
+      . " array refuse a restore of one member, and switching that off did"
+      . " not work: $err" if $err;
+
+    warn "Volume group '$name' was write-order consistent, as earlier versions"
+       . " of this plugin created it. PowerStore does not restore a single"
+       . " member of such a group, so the setting has been switched off for"
+       . " this group. Group snapshots taken of it from now on are no longer"
+       . " write-order consistent.\n";
 
     return;
 }
@@ -968,6 +1106,11 @@ sub _array_snapshot_rollback {
     my $volume_id = $class->_require_volume_id($scfg, $volume, %opts);
     my $snap_id   = $class->_snapshot_id($scfg, $snapshot, %opts);
     die "Snapshot '$snapshot' does not exist on the array\n" unless $snap_id;
+
+    # volume_rollback_is_possible has normally asked this already. Asked again
+    # because this is where the answer is acted on, and because not every
+    # caller of a rollback goes through that check first.
+    $class->_vg_prepare_restore($scfg, $storeid, $volume, $volume_id, %opts);
 
     return $class->_api($scfg, %opts)->volume_restore($volume_id, $snap_id, %opts);
 }

@@ -5,6 +5,53 @@ English version: [CHANGELOG.md](CHANGELOG.md)
 
 版本規則：小版號逐次遞增，到 .99 才進位到次版號 —— 0.7.0、0.7.1、……、0.7.99，然後 0.8.0。所有 0.x 版本都屬於預先發行版；1.0.0 的門檻是實機測試通過。
 
+## [0.8.33~beta1] - 2026-10-12
+
+### 已修正
+- **在設定了 `pstore-volume-group-per-vm` 的 PowerStore storage 上，每一次
+  `qm rollback` 都會被拒絕**，從 0.8.18 到 0.8.32 皆然：
+
+  > *Refreshing or Restoring an individual member volume of a write order
+  > consistent Volume Group is not supported. (0xE0A060030013)*
+
+  外掛替每台 VM 建立 volume group 時，把它設成了寫入順序一致，而 PowerStore 不會單獨
+  還原這種群組的其中一個成員。Proxmox VE 倒回客體時是一顆磁碟一顆磁碟進行的，也沒有提供
+  儲存外掛其他做法，所以沒有任何一次倒回能成功。這項設定原本是為了讓多磁碟 VM 的群組快照
+  保持一致，但外掛從不建立群組快照：它一次只對一個磁碟區建立快照與還原。
+
+  新群組建立時會把寫入順序一致性**關閉**，而且這個欄位一律明確送出。只是不送並不夠：
+  儲存伺服器預設會把它開啟，Dell 的白皮書 H18156、ansible 模組與 Go 用戶端都這麼記載。
+
+  **這與主機模式無關。** 回報來自一個使用 `dell-host-mode host-group` 的 storage；
+  每一種主機模式都受影響。
+
+  由 **Alexander Gott（[@alexandergott-afk](https://github.com/alexandergott-afk)）**
+  在 [issue #12](https://github.com/jasoncheng7115/jt-pve-storage-dellemc/issues/12)
+  回報。
+
+- **儲存伺服器注定會拒絕的倒回，會讓客體停在關機且上鎖的狀態。** PVE 是先檢查每一顆
+  磁碟，接著停止客體並設定 `lock: rollback`，然後才還原；在最後一步被拒絕，前兩步已經
+  做完了。現在外掛會在檢查階段就回答：磁碟若位於外掛不會更動的寫入順序一致群組裡，會在
+  任何東西被停止之前就被拒絕，訊息中會指出群組名稱與這項設定。`pstore-volume-group`
+  指定的群組也包含在內，因為 PowerStore Manager 預設會把新群組建立成一致的。先前嘗試
+  倒回而被鎖住的客體，需要執行 `qm unlock <vmid>`。
+
+### 已變更
+- **0.8.18 到 0.8.32 建立的群組，是在第一次需要時才修正，而不是全面掃過一遍。**
+  當其中的磁碟要倒回時，外掛會關閉那一個群組的寫入順序一致性，在作業記錄中說明，然後
+  才還原。只有帶著外掛自己寫入的標記、而且沒有掛保護原則的群組才會這麼做：掛了保護原則，
+  代表有人選擇了排程群組快照，那些快照要不要一致由他決定。這樣的群組會維持原狀，倒回則
+  被拒絕。以上行為不取決於選項目前是否仍然開啟，因為曾經開啟過的 storage 仍然留有那些
+  群組。
+
+  **尚未在實機上驗證：** 既有群組的這項設定可以變更，以及關閉之後成員可以還原。兩者
+  Dell 的文件都有記載（H18156；Dell 的兩個用戶端也都送出同樣的 `PATCH`）。至於拒絕
+  訊息本身，則是引述自客戶的儲存伺服器。
+- **在 PowerStore Manager 對每台 VM 的群組建立的群組快照，不再是寫入順序一致的。**
+  它仍然涵蓋該 VM 的每一顆磁碟，但各成員的擷取時間可能有些微先後。儲存伺服器無法兩者
+  兼得：讓群組快照保持一致的那項設定，正是拒絕還原單一成員的那項設定。
+  `docs/CONFIGURATION_zh-TW.md` 為此新增了一節〈Volume group 與 `qm rollback`〉。
+
 ## [0.8.32~beta1] - 2026-09-02
 
 ### 已修正

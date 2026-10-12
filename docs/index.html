@@ -175,7 +175,7 @@
     <div class="hero__glow"></div>
     <div class="hero__glow-left"></div>
     <div class="hero__content">
-        <div class="hero__badge">v0.8.32~beta1 <span class="hero__badge-sep"></span> MIT License</div>
+        <div class="hero__badge">v0.8.33~beta1 <span class="hero__badge-sep"></span> MIT License</div>
         <h1 class="hero__title">jt-pve-storage-dellemc</h1>
         <p class="hero__project-desc">
             <span class="lang-en">Dell EMC Storage Plugins for Proxmox VE</span>
@@ -1191,8 +1191,8 @@ DellPowerFlexPlugin                  <span class="comment"># no SCSI LUN, no mul
         <span class="lang-zh">驗證狀態</span>
     </h2>
     <p class="section-subtitle">
-        <span class="lang-en">3,415 unit tests run without an array or a device. What they cannot tell you is whether the endpoints exist, whether the field names are right, or whether a device ever appears &mdash; only an array can, and exactly one has.</span>
-        <span class="lang-zh">3,415 個單元測試不需要儲存伺服器或實體裝置即可執行。它們無法告訴你的是：端點是否存在、欄位名稱是否正確、裝置到底會不會出現 &mdash; 那隻有儲存伺服器能回答，而目前只有一台回答過。</span>
+        <span class="lang-en">3,473 unit tests run without an array or a device. What they cannot tell you is whether the endpoints exist, whether the field names are right, or whether a device ever appears &mdash; only an array can, and exactly one has.</span>
+        <span class="lang-zh">3,473 個單元測試不需要儲存伺服器或實體裝置即可執行。它們無法告訴你的是：端點是否存在、欄位名稱是否正確、裝置到底會不會出現 &mdash; 那隻有儲存伺服器能回答，而目前只有一台回答過。</span>
     </p>
 
     <h3>
@@ -1352,6 +1352,15 @@ DellPowerFlexPlugin                  <span class="comment"># no SCSI LUN, no mul
         <span class="lang-en">Changelog</span>
         <span class="lang-zh">變更紀錄</span>
     </h2>
+
+    <div class="changelog-entry">
+        <div class="changelog-version">v0.8.33~beta1</div>
+        <div class="changelog-date">2026-10-12</div>
+        <div class="changelog-summary">
+            <span class="lang-en">Every qm rollback was refused on a PowerStore storage with pstore-volume-group-per-vm set, from 0.8.18 to 0.8.32. The plugin created each VM&rsquo;s volume group write-order consistent, PowerStore does not restore one member of such a group, and one disk at a time is the only way Proxmox VE asks. New groups are created with the setting off; groups already on the array are corrected the first time one of their disks is rolled back, unless a protection policy is attached. A rollback that cannot go ahead is now refused before the guest is stopped and locked, naming the group. The host mode has no part in it. Reported by Alexander Gott (@alexandergott-afk), issue #12.</span>
+            <span class="lang-zh">在設定了 pstore-volume-group-per-vm 的 PowerStore storage 上，從 0.8.18 到 0.8.32，每一次 qm rollback 都會被拒絕。外掛把每台 VM 的 volume group 建立成寫入順序一致，而 PowerStore 不會單獨還原這種群組的其中一個成員，Proxmox VE 卻只會一顆磁碟一顆磁碟地倒回。新群組建立時會關閉這項設定；已經在儲存伺服器上的群組，會在其中的磁碟第一次倒回時修正，但掛了保護原則的除外。無法進行的倒回，現在會在客體被停止、上鎖之前就被拒絕，並指出群組名稱。這與主機模式無關。由 Alexander Gott（@alexandergott-afk）在 issue #12 回報。</span>
+        </div>
+    </div>
 
     <div class="changelog-entry">
         <div class="changelog-version">v0.8.32~beta1</div>

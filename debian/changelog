@@ -1,3 +1,31 @@
+jt-pve-storage-dellemc (0.8.33~beta1-1) unstable; urgency=medium
+
+  * BETA RELEASE. Not for production use.
+  * Fixed: every qm rollback was refused on a PowerStore storage with
+    pstore-volume-group-per-vm set, from 0.8.18 to 0.8.32, with "Refreshing or
+    Restoring an individual member volume of a write order consistent Volume
+    Group is not supported. (0xE0A060030013)". The plugin created each VM's
+    volume group write-order consistent, PowerStore does not restore one
+    member of such a group, and one disk at a time is the only way PVE asks.
+    New groups are created with the setting off, and the field is always
+    sent: left out, the array switches it on by default. The host mode has no
+    part in it. Reported by Alexander Gott (@alexandergott-afk) in issue #12.
+  * Fixed: a rollback the array was going to refuse left the guest stopped
+    and locked, because PVE stops the guest and sets lock: rollback before it
+    restores. A disk in a write-order consistent group the plugin will not
+    change is now refused at the check PVE makes first, naming the group.
+    That covers a group named by pstore-volume-group as well.
+  * Groups created by 0.8.18 to 0.8.32 are corrected when first needed: on a
+    rollback the setting is switched off on that one group, the task log says
+    so, and the restore follows. Only for a group this plugin created, and
+    only while no protection policy is attached to it.
+  * A group snapshot taken in PowerStore Manager of a per-VM group is no
+    longer write-order consistent. The array does not offer both.
+  * Not verified on an array: that the setting can be changed on an existing
+    group, and that a member restores once it is off. Dell documents both.
+
+ -- Jason Cheng <jason@jason.tools>  Mon, 12 Oct 2026 16:40:00 +0800
+
 jt-pve-storage-dellemc (0.8.32~beta1-1) unstable; urgency=high
 
   * BETA RELEASE. Not for production use.

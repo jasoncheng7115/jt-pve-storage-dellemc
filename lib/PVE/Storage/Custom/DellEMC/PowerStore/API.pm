@@ -601,16 +601,51 @@ sub volume_group_create {
 
     my $body = { name => $name };
 
-    # Write-order consistency is what makes a group snapshot of a multi-disk
-    # VM usable: without it the members are snapshotted independently and a
-    # guest spanning two disks can be restored to a state it was never in.
-    $body->{is_write_order_consistent} = JSON::true;
+    # Sent, and sent as false. Leaving it out is not neutral: Dell's snapshot
+    # white paper (H18156), its ansible module and its Go client all say the
+    # array makes a new group write-order consistent unless told otherwise,
+    # and a consistent group refuses the one thing PVE does to its members -
+    #
+    #   Refreshing or Restoring an individual member volume of a write order
+    #   consistent Volume Group is not supported. (0xE0A060030013)
+    #
+    # - which was every 'qm rollback' on a storage with per-VM groups, from
+    # 0.8.18 to 0.8.32 (issue #12). This plugin snapshots and restores one
+    # volume at a time because that is how PVE asks, and it takes no group
+    # snapshot anywhere, so the setting protected nothing it does.
+    $body->{is_write_order_consistent} = JSON::false;
 
     $body->{description} = $opts{description} if defined $opts{description};
 
     my $res = $self->post('/volume_group', $body, %opts);
 
     return ref($res) eq 'HASH' ? $res->{id} : undef;
+}
+
+# What a restore of one member needs to know about its group, and no more.
+#
+# A select of its own rather than one more field on _volume_group_select:
+# that one serves the create and delete paths, which have run on a customer's
+# array exactly as they are, and a field some firmware does not offer would
+# fail the whole read for both of them.
+sub volume_group_consistency {
+    my ($self, $id, %opts) = @_;
+
+    return $self->get_or_undef("/volume_group/$id",
+        { select => 'id,name,description,protection_policy_id,'
+                  . 'is_write_order_consistent' }, %opts);
+}
+
+# The setting "can be changed at the creation of the volume group or later"
+# (H18156). Dell's own clients do it with a PATCH carrying this one field:
+# python-powerstore's modify_volume_group, gopowerstore's VolumeGroupModify.
+# NOT VERIFIED on an array.
+sub volume_group_set_write_order_consistent {
+    my ($self, $id, $enabled, %opts) = @_;
+
+    return $self->patch("/volume_group/$id",
+        { is_write_order_consistent => $enabled ? JSON::true : JSON::false },
+        %opts);
 }
 
 sub volume_group_delete {

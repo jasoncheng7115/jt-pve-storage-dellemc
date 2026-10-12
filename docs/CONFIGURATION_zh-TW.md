@@ -58,11 +58,32 @@ English: [CONFIGURATION.md](CONFIGURATION.md)
 | 選項 | 型別 | 必填 | 預設 | 說明 |
 |---|---|---|---|---|
 | `pstore-appliance` | string | 否 | — | 多 appliance 叢集中，新 volume 要放在哪一台。留空由 PowerStore 自行決定 |
-| `pstore-volume-group` | string | 否 | — | 把所有 volume 放進指定的 volume group，該群組必須已存在。不能與 `pstore-volume-group-per-vm` 併用 |
-| `pstore-volume-group-per-vm` | boolean | 否 | `0` | 讓每一台 VM 擁有自己的 volume group，由外掛建立與移除，如此便能以 VM 為單位套用保護原則與一致性群組快照。詳見下方 |
+| `pstore-volume-group` | string | 否 | — | 把所有 volume 放進指定的 volume group，該群組必須已存在，而且必須關閉寫入順序一致性，否則 `qm rollback` 會被拒絕，詳見下方〈Volume group 與 `qm rollback`〉。不能與 `pstore-volume-group-per-vm` 併用 |
+| `pstore-volume-group-per-vm` | boolean | 否 | `0` | 讓每一台 VM 擁有自己的 volume group，由外掛建立與移除，如此便能以 VM 為單位套用保護原則與群組快照。這些群組不啟用寫入順序一致性，詳見下方〈Volume group 與 `qm rollback`〉 |
 | `pstore-performance-policy` | `High` \| `Medium` \| `Low` | 否 | `Medium` | 新 volume 的效能原則 |
 | `pstore-protection-policy` | string | 否 | — | 套用 protection policy（快照與複寫規則），必須已存在 |
 | `pstore-lun-id-base` | 1–200 | 否 | `1` | 外掛配發 LUN ID 的起始值 |
+
+### Volume group 與 `qm rollback`
+
+PowerStore 的 volume group 有一項「寫入順序一致性」（write-order consistency）設定，而且除非另外指定，儲存伺服器預設會把它開啟，不論是在 PowerStore Manager 還是透過 API 建立都一樣。開啟時，群組快照會在同一瞬間擷取所有成員；開啟時，儲存伺服器也會拒絕單獨還原其中一個成員：
+
+> *Refreshing or Restoring an individual member volume of a write order consistent Volume Group is not supported. (0xE0A060030013)*
+
+Proxmox VE 倒回客體時是一顆磁碟一顆磁碟進行的，而且沒有提供儲存外掛其他做法。所以這兩件事無法兼得：**位於寫入順序一致群組裡的磁碟，無法用 `qm rollback` 倒回。**
+
+因此 `pstore-volume-group-per-vm` 建立群組時會把這項設定**關閉**。在 PowerStore Manager 對這種群組建立的群組快照，仍然涵蓋該 VM 的每一顆磁碟，但各成員的擷取時間可能有些微先後。0.8.18 到 0.8.32 版建立這些群組時是開啟的，所以這類 storage 上的每一次倒回都會被拒絕。
+
+那些版本建立的群組，會在第一次需要時修正：當其中的磁碟要倒回時，外掛會先關閉那一個群組的這項設定，在作業記錄中說明，然後才還原。只有外掛自己建立的群組，而且群組上沒有掛保護原則時，才會這麼做。
+
+其他開啟寫入順序一致性的群組一律維持原狀，倒回會在客體被停止之前就被拒絕，訊息中會指出群組名稱：
+
+- 不是外掛建立的群組：也就是 `pstore-volume-group` 指定的那個，或是有人手動把磁碟移進去的群組；
+- 外掛自己建立、但已經掛上保護原則的群組。它排程產生的群組快照是你的，要不要一致也由你決定。
+
+遇到這兩種情況，若要從 Proxmox VE 倒回，請在 PowerStore Manager 把該群組的寫入順序一致性關閉；若要保留，就在 PowerStore Manager 以群組快照還原整個群組。對外掛自己的群組重新**開啟**這項設定，只有在群組掛著保護原則時才會維持；沒有的話，該 VM 下一次倒回時又會被關閉。
+
+「變更既有群組的這項設定」與「關閉後即可還原單一成員」都是 Dell 文件（白皮書 H18156）所記載的行為，本專案尚未在實機上執行過，詳見 [TESTING_zh-TW.md](TESTING_zh-TW.md)。
 
 ## PowerVault ME 專屬選項
 

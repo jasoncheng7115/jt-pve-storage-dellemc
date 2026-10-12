@@ -66,11 +66,56 @@ To see an ME's two addresses on the array itself: `show network-parameters`.
 | Option | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `pstore-appliance` | string | no | — | Appliance for new volumes in a multi-appliance cluster. Unset lets PowerStore choose |
-| `pstore-volume-group` | string | no | — | Put every volume in this volume group. Must already exist. Cannot be combined with `pstore-volume-group-per-vm` |
-| `pstore-volume-group-per-vm` | boolean | no | `0` | Give each VM a volume group of its own, created and removed by the plugin, so protection policies and consistent group snapshots can be applied per VM. See below |
+| `pstore-volume-group` | string | no | — | Put every volume in this volume group. Must already exist, and must have write-order consistency switched off or `qm rollback` is refused: see *Volume groups and `qm rollback`* below. Cannot be combined with `pstore-volume-group-per-vm` |
+| `pstore-volume-group-per-vm` | boolean | no | `0` | Give each VM a volume group of its own, created and removed by the plugin, so protection policies and group snapshots can be applied per VM. The groups are not write-order consistent: see *Volume groups and `qm rollback`* below |
 | `pstore-performance-policy` | `High` \| `Medium` \| `Low` | no | `Medium` | Performance policy for new volumes |
 | `pstore-protection-policy` | string | no | — | Protection policy (snapshot and replication rules). Must already exist |
 | `pstore-lun-id-base` | 1–200 | no | `1` | Lowest LUN id the plugin assigns |
+
+### Volume groups and `qm rollback`
+
+A PowerStore volume group has a *write-order consistency* setting, and the
+array switches it on unless it is told otherwise, in PowerStore Manager and
+through the API alike. With it on, a snapshot of the group captures every
+member at the same instant. With it on, the array also refuses to restore one
+member by itself:
+
+> *Refreshing or Restoring an individual member volume of a write order
+> consistent Volume Group is not supported. (0xE0A060030013)*
+
+Proxmox VE rolls a guest back one disk at a time and gives a storage plugin no
+other way to do it. So the two cannot be had together: **a disk in a
+write-order consistent group cannot be rolled back with `qm rollback`.**
+
+`pstore-volume-group-per-vm` therefore creates its groups with the setting
+**off**. A group snapshot taken in PowerStore Manager still covers every disk
+of the VM, but its members may be captured a moment apart. Versions 0.8.18 to
+0.8.32 created these groups with the setting on, and every rollback on such a
+storage was refused.
+
+A group one of those versions created is corrected when it is first needed.
+When a disk in it is rolled back, the plugin switches the setting off on that
+one group, says so in the task log, and then restores. It does that only for a
+group it created itself, and only while no protection policy is attached to
+it.
+
+Every other write-order consistent group is left as it is, and the rollback is
+refused before the guest is stopped, with a message naming the group:
+
+- a group the plugin did not create: the one `pstore-volume-group` names, or
+  one a disk was moved into by hand;
+- a group of the plugin's own that has a protection policy attached. Its
+  scheduled group snapshots are yours, and so is whether they are consistent.
+
+For either, switch write-order consistency off on the group in PowerStore
+Manager to roll back from Proxmox VE, or keep it and restore the whole group
+from a group snapshot there. Switching it back **on** for one of the plugin's
+own groups lasts only while a protection policy is attached; without one, the
+next rollback of that VM switches it off again.
+
+Changing the setting on an existing group, and restoring a member once it is
+off, are both what Dell documents (white paper H18156). Neither has been run
+on an array by this project yet; see [TESTING.md](TESTING.md).
 
 ## PowerVault ME options
 

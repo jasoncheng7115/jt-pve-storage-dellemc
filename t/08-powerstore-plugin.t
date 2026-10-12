@@ -13,6 +13,7 @@ use warnings;
 use Test::More;
 
 use File::Temp qw(tempdir);
+use JSON ();
 
 # Keep this test out of the node's own state, however it is run.
 #
@@ -1123,6 +1124,423 @@ my $HG_SCFG = { 'dell-cluster-name' => 'c1', 'dell-host-mode' => 'host-group' };
     is_deeply($hosts, [], 'an unnameable group yields no host to unmap by');
     ok(scalar(grep { /host group/ } @warnings),
         '... but says so, rather than reporting "not mapped"');
+}
+
+# ---------------------------------------------------------------------------
+# Rolling back a member of a volume group (issue #12)
+#
+# From 0.8.18 to 0.8.32 every 'qm rollback' on a storage with per-VM volume
+# groups was refused:
+#
+#   Refreshing or Restoring an individual member volume of a write order
+#   consistent Volume Group is not supported. (0xE0A060030013)
+#
+# The plugin created its groups write-order consistent, and a consistent group
+# does not restore one member - which is the only way PVE asks.
+#
+# Nothing above could have seen it. Those tests stub the client, so no array
+# was there to refuse anything, and the one test that read the request
+# asserted the flag was TRUE. So this drives the real client against an array
+# that keeps state and behaves as Dell documents and as the customer's did:
+#
+#   - a group created WITHOUT is_write_order_consistent is consistent. That
+#     is the array's default (H18156, Dell's ansible module, gopowerstore),
+#     and it is why deleting the line that set it would have fixed nothing;
+#   - a restore of a member of a consistent group is refused with the
+#     customer's HTTP 400, verbatim;
+#   - a PATCH changes the setting, and can be made to refuse.
+# ---------------------------------------------------------------------------
+
+{
+    package Test::MiniStore;
+
+    use JSON;
+    use HTTP::Response;
+    use HTTP::Headers;
+    use URI;
+
+    my $REFUSAL = 'Refreshing or Restoring an individual member volume of a'
+                . ' write order consistent Volume Group is not supported.';
+
+    sub new {
+        my ($class, %a) = @_;
+        return bless { timeout => 15, groups => {}, volumes => {}, log => [],
+                       next_id => 1, %a }, $class;
+    }
+
+    sub timeout { $_[0]{timeout} = $_[1] if defined $_[1]; $_[0]{timeout} }
+    sub default_header { return }
+    sub cookie_jar { return }
+    sub can { $_[1] eq 'cookie_jar' ? 0 : UNIVERSAL::can($_[0], $_[1]) }
+
+    sub seed_group  { my ($s, %g) = @_; $s->{groups}{ $g{id} }  = {%g}; $s }
+    sub seed_volume { my ($s, %v) = @_; $s->{volumes}{ $v{id} } = {%v}; $s }
+
+    # What was asked of the array, as 'METHOD /path', logins left out.
+    sub asked { [ map { $_->[0] } @{ $_[0]{log} } ] }
+    sub sent  { my ($s, $re) = @_; [ grep { $_ =~ $re } @{ $s->asked } ] }
+
+    sub _reply {
+        my ($code, $data) = @_;
+        my $h = HTTP::Headers->new('Content-Type' => 'application/json',
+                                   'DELL-EMC-TOKEN' => 'tok-1');
+        return HTTP::Response->new($code, undef, $h, encode_json($data));
+    }
+
+    sub _refuse {
+        my ($code, $id, $text) = @_;
+        return _reply($code, { messages => [ { code => $id,
+            severity => 'Error', message_l10n => $text } ] });
+    }
+
+    sub request {
+        my ($self, $req) = @_;
+
+        my $uri    = URI->new($req->uri);
+        my $path   = $uri->path;
+        my %q      = $uri->query_form;
+        my $method = $req->method;
+        $path =~ s{^/api/rest}{};
+
+        return _reply(200, []) if $path eq '/login_session';
+
+        my $body = length($req->content // '') ? decode_json($req->content) : {};
+        push @{ $self->{log} }, [ "$method $path", $body ];
+
+        if ($method eq 'GET' && $path eq '/volume_group') {
+            (my $name = $q{name} // '') =~ s/^eq\.//;
+            return _reply(200, [ grep { $_->{name} eq $name }
+                                 values %{ $self->{groups} } ]);
+        }
+
+        if ($method eq 'POST' && $path eq '/volume_group') {
+            my $id = 'vg-new-' . $self->{next_id}++;
+            $self->{groups}{$id} = {
+                id => $id, name => $body->{name},
+                description => $body->{description},
+                # THE default. Not sent means consistent.
+                is_write_order_consistent =>
+                    exists $body->{is_write_order_consistent}
+                        ? $body->{is_write_order_consistent} : JSON::true,
+            };
+            return _reply(201, { id => $id });
+        }
+
+        if ($path =~ m{^/volume_group/([^/]+)\z}) {
+            my $group = $self->{groups}{$1}
+                or return _refuse(404, '0xE0A0E0010001', 'not found');
+
+            if ($method eq 'GET') {
+                return _refuse(500, '0xE0', 'internal error')
+                    if $self->{group_unreadable};
+                my %row = %$group;
+                delete $row{is_write_order_consistent} if $self->{field_missing};
+                return _reply(200, \%row);
+            }
+            if ($method eq 'PATCH') {
+                return _refuse(422, '0xE0A060010099',
+                    'The volume group is in a replication session.')
+                    if $self->{patch_refused};
+                $group->{$_} = $body->{$_} for keys %$body;
+                return _reply(204, {});
+            }
+        }
+
+        if ($method eq 'GET' && $path eq '/volume') {
+            (my $name = $q{name} // '') =~ s/^eq\.//;
+            my $want_snap = ($q{type} // '') eq 'eq.Snapshot';
+            return _reply(200, [ grep {
+                $_->{name} eq $name
+                    && (!$want_snap || ($_->{type} // '') eq 'Snapshot')
+            } values %{ $self->{volumes} } ]);
+        }
+
+        if ($method eq 'GET' && $path =~ m{^/volume/([^/]+)\z}) {
+            my $vol = $self->{volumes}{$1}
+                or return _refuse(404, '0xE0A0E0010001', 'not found');
+            return _refuse(500, '0xE0', 'internal error')
+                if $self->{membership_unreadable};
+            my $g = defined $vol->{group} ? $self->{groups}{ $vol->{group} } : undef;
+            return _reply(200, { id => $vol->{id},
+                volume_groups => $g ? [ { id => $g->{id}, name => $g->{name} } ] : [] });
+        }
+
+        if ($method eq 'POST' && $path =~ m{^/volume/([^/]+)/restore\z}) {
+            my $vol = $self->{volumes}{$1}
+                or return _refuse(404, '0xE0A0E0010001', 'not found');
+            my $g = defined $vol->{group} ? $self->{groups}{ $vol->{group} } : undef;
+
+            # THE refusal. As the customer's array answered it.
+            return _refuse(400, '0xE0A060030013', $REFUSAL)
+                if $g && $g->{is_write_order_consistent};
+
+            push @{ $self->{restored} }, $vol->{id};
+            return _reply(204, {});
+        }
+
+        return _reply(200, []);
+    }
+}
+
+# A storage, an array with one VM disk and one snapshot of it, and the real
+# client between them.
+sub mini_store {
+    my (%flags) = @_;
+
+    my $array = Test::MiniStore->new(%flags);
+    $array->seed_volume(id => 'v-1', name => 'pve-ps1-104-disk0',
+                        type => 'Primary');
+    $array->seed_volume(id => 's-1', name => 'pve-ps1-104-disk0.pve-snap-snap1',
+                        type => 'Snapshot');
+
+    my $api = PVE::Storage::Custom::DellEMC::PowerStore::API->new(
+        portal => '10.0.0.5', username => 'pveadmin', password => 'secret',
+        storeid => 'ps1', type => 'dellpowerstore', retries => 1,
+        ua => $array,
+    );
+
+    return ($array, $api);
+}
+
+my @ROLLBACK = ({ 'pstore-volume-group-per-vm' => 1 }, 'ps1',
+                'pve-ps1-104-disk0', 'pve-ps1-104-disk0.pve-snap-snap1');
+my $OUR_MARK = $P->_vg_description('ps1', 104);
+
+# 1. The regression itself, end to end: the group this plugin creates today,
+#    with a disk in it, rolled back.
+{
+    no warnings 'redefine', 'once';
+    my ($array, $api) = mini_store();
+    local *PVE::Storage::Custom::DellPowerStorePlugin::_api = sub { $api };
+    my @warnings;
+    local $SIG{__WARN__} = sub { push @warnings, $_[0] };
+
+    my $gid = $P->_vg_resolve_id($ROLLBACK[0], 'ps1', 'pve-ps1-104-disk0');
+    ok($gid, 'the per-VM group is created through the real client');
+    ok(!$array->{groups}{$gid}{is_write_order_consistent},
+        'and the array holds it as NOT write-order consistent')
+        or diag('left out or true, the array makes it consistent and every'
+              . ' rollback below is refused');
+
+    $array->{volumes}{'v-1'}{group} = $gid;
+
+    ok(eval { $P->_array_rollback_precheck(@ROLLBACK[0 .. 2]); 1 },
+        'the check PVE makes before stopping the guest passes') or diag($@);
+    ok(eval { $P->_array_snapshot_rollback(@ROLLBACK); 1 },
+        'a disk in a group this plugin created rolls back') or diag($@);
+    is_deeply($array->{restored}, ['v-1'], '... and the array did restore it');
+    is_deeply($array->sent(qr/^PATCH/), [],
+        '... with nothing about the group changed to get there');
+    is_deeply(\@warnings, [], '... and nothing to tell the operator');
+}
+
+# 2. A group an earlier version left behind: ours, consistent, unprotected.
+#    Undoing this plugin's own setting on its own object is a repair.
+{
+    no warnings 'redefine', 'once';
+    my ($array, $api) = mini_store();
+    $array->seed_group(id => 'vg-old', name => 'pve-ps1-104-vg',
+        description => $OUR_MARK, is_write_order_consistent => JSON::true);
+    $array->{volumes}{'v-1'}{group} = 'vg-old';
+    local *PVE::Storage::Custom::DellPowerStorePlugin::_api = sub { $api };
+    my @warnings;
+    local $SIG{__WARN__} = sub { push @warnings, $_[0] };
+
+    ok(eval { $P->_array_rollback_precheck(@ROLLBACK[0 .. 2]); 1 },
+        'a group left by 0.8.18 to 0.8.32 does not block the rollback')
+        or diag($@);
+    is_deeply($array->sent(qr/^PATCH/), [],
+        '... and the CHECK changes nothing on the array');
+
+    ok(eval { $P->_array_snapshot_rollback(@ROLLBACK); 1 },
+        '... and the rollback goes through') or diag($@);
+    is_deeply($array->{restored}, ['v-1'], '... restored by the array');
+    ok(!$array->{groups}{'vg-old'}{is_write_order_consistent},
+        '... because the setting was switched off on that group');
+
+    my @order = grep { /^PATCH|restore/ } @{ $array->asked };
+    is_deeply(\@order,
+        ['PATCH /volume_group/vg-old', 'POST /volume/v-1/restore'],
+        '... BEFORE the restore, and exactly once');
+    ok(scalar(grep { /pve-ps1-104-vg/ && /switched off/ } @warnings),
+        '... and the task log names the group and says what was done to it');
+}
+
+# 3. Ours, but somebody has attached a protection policy. Its scheduled group
+#    snapshots are theirs, and so is whether those are consistent.
+{
+    no warnings 'redefine', 'once';
+    my ($array, $api) = mini_store();
+    $array->seed_group(id => 'vg-old', name => 'pve-ps1-104-vg',
+        description => $OUR_MARK, protection_policy_id => 'pp-7',
+        is_write_order_consistent => JSON::true);
+    $array->{volumes}{'v-1'}{group} = 'vg-old';
+    local *PVE::Storage::Custom::DellPowerStorePlugin::_api = sub { $api };
+
+    ok(!eval { $P->_array_rollback_precheck(@ROLLBACK[0 .. 2]); 1 },
+        'a consistent group under a protection policy blocks the rollback');
+    like($@, qr/'pve-ps1-104-vg'/, '... naming the group');
+    like($@, qr/write-order consistent/, '... and the setting');
+    like($@, qr/protection policy/, '... and why it was not changed');
+
+    ok(!eval { $P->_array_snapshot_rollback(@ROLLBACK); 1 },
+        '... and the restore refuses too, for a caller that skipped the check');
+    is_deeply($array->sent(qr/^PATCH|restore/), [],
+        '... having changed nothing and asked for no restore');
+    ok($array->{groups}{'vg-old'}{is_write_order_consistent},
+        '... so the group is exactly as its owner left it');
+}
+
+# 4. An operator's own group - 'pstore-volume-group', or one they moved the
+#    disk into. PowerStore Manager makes a new group consistent by default.
+{
+    no warnings 'redefine', 'once';
+    my ($array, $api) = mini_store();
+    $array->seed_group(id => 'vg-fin', name => 'finance-vg',
+        description => 'Finance VMs, do not touch',
+        is_write_order_consistent => JSON::true);
+    $array->{volumes}{'v-1'}{group} = 'vg-fin';
+    local *PVE::Storage::Custom::DellPowerStorePlugin::_api = sub { $api };
+
+    ok(!eval { $P->_array_rollback_precheck(@ROLLBACK[0 .. 2]); 1 },
+        "an operator's consistent group blocks the rollback before it starts");
+    like($@, qr/'finance-vg'/, '... naming the group to go and look at');
+    like($@, qr/did not create/, '... and why this plugin leaves it alone');
+    like($@, qr/PowerStore Manager/, '... and where the setting is');
+
+    ok(!eval { $P->_array_snapshot_rollback(@ROLLBACK); 1 },
+        '... and the restore refuses as well');
+    is_deeply($array->sent(qr/^PATCH|restore/), [],
+        "... without touching a group that is not this plugin's");
+}
+
+# 5. Groups that are no obstacle are left entirely alone.
+{
+    no warnings 'redefine', 'once';
+    my ($array, $api) = mini_store();
+    $array->seed_group(id => 'vg-fin', name => 'finance-vg',
+        description => 'Finance VMs', is_write_order_consistent => JSON::false);
+    $array->{volumes}{'v-1'}{group} = 'vg-fin';
+    local *PVE::Storage::Custom::DellPowerStorePlugin::_api = sub { $api };
+
+    ok(eval { $P->_array_snapshot_rollback(@ROLLBACK); 1 },
+        "a disk in an operator's group that is not consistent rolls back")
+        or diag($@);
+    is_deeply($array->sent(qr/^PATCH/), [], '... with the group untouched');
+}
+
+{
+    no warnings 'redefine', 'once';
+    my ($array, $api) = mini_store();
+    local *PVE::Storage::Custom::DellPowerStorePlugin::_api = sub { $api };
+
+    ok(eval { $P->_array_snapshot_rollback({}, @ROLLBACK[1 .. 3]); 1 },
+        'a disk in no group rolls back, as it always did') or diag($@);
+    is_deeply($array->sent(qr{^GET /volume_group}), [],
+        '... and costs no read of any group');
+}
+
+# 6. The option has since been switched off. The disk is still in the group
+#    it was put in, so the repair still has to happen (rule 4).
+{
+    no warnings 'redefine', 'once';
+    my ($array, $api) = mini_store();
+    $array->seed_group(id => 'vg-old', name => 'pve-ps1-104-vg',
+        description => $OUR_MARK, is_write_order_consistent => JSON::true);
+    $array->{volumes}{'v-1'}{group} = 'vg-old';
+    local *PVE::Storage::Custom::DellPowerStorePlugin::_api = sub { $api };
+    local $SIG{__WARN__} = sub { };
+
+    ok(eval { $P->_array_snapshot_rollback({}, @ROLLBACK[1 .. 3]); 1 },
+        'the repair does not depend on the option still being set')
+        or diag($@);
+    is_deeply($array->{restored}, ['v-1'], '... and the disk is restored');
+}
+
+# 7. Could not ask. Not a reason to refuse a rollback: the restore puts the
+#    real question to the array and reports its answer.
+{
+    no warnings 'redefine', 'once';
+    my ($array, $api) = mini_store(membership_unreadable => 1);
+    local *PVE::Storage::Custom::DellPowerStorePlugin::_api = sub { $api };
+    my @warnings;
+    local $SIG{__WARN__} = sub { push @warnings, $_[0] };
+
+    ok(eval { $P->_array_rollback_precheck(@ROLLBACK[0 .. 2]); 1 },
+        'an unreadable membership does not block the rollback') or diag($@);
+    ok(eval { $P->_array_snapshot_rollback(@ROLLBACK); 1 },
+        '... and the restore is still asked for') or diag($@);
+    is_deeply($array->{restored}, ['v-1'], '... and answered by the array');
+    ok(scalar(grep { /membership/ } @warnings),
+        '... with a line saying the group could not be checked');
+}
+
+# 8. An array that does not report the setting. Nothing is assumed from its
+#    absence, in either direction.
+{
+    no warnings 'redefine', 'once';
+    my ($array, $api) = mini_store(field_missing => 1);
+    $array->seed_group(id => 'vg-old', name => 'pve-ps1-104-vg',
+        description => $OUR_MARK, is_write_order_consistent => JSON::true);
+    $array->{volumes}{'v-1'}{group} = 'vg-old';
+    local *PVE::Storage::Custom::DellPowerStorePlugin::_api = sub { $api };
+
+    ok(!eval { $P->_array_snapshot_rollback(@ROLLBACK); 1 },
+        'a group that does not say is not guessed about: the restore is'
+      . ' attempted and the array refuses it');
+    like($@, qr/0xE0A060030013/,
+        "... in the array's own words, code included");
+    is_deeply($array->sent(qr/^PATCH/), [],
+        '... and no setting was changed on a guess');
+}
+
+# 9. The array will not let the setting be changed. The rollback stops there,
+#    names the group and hands over what the array said.
+{
+    no warnings 'redefine', 'once';
+    my ($array, $api) = mini_store(patch_refused => 1);
+    $array->seed_group(id => 'vg-old', name => 'pve-ps1-104-vg',
+        description => $OUR_MARK, is_write_order_consistent => JSON::true);
+    $array->{volumes}{'v-1'}{group} = 'vg-old';
+    local *PVE::Storage::Custom::DellPowerStorePlugin::_api = sub { $api };
+    local $SIG{__WARN__} = sub { };
+
+    ok(!eval { $P->_array_snapshot_rollback(@ROLLBACK); 1 },
+        'a refused change of the setting stops the rollback');
+    like($@, qr/'pve-ps1-104-vg'/, '... naming the group');
+    like($@, qr/replication session/, "... and quoting the array's reason");
+    is_deeply($array->sent(qr/restore/), [],
+        '... without sending a restore that is known to be refused');
+}
+
+# 10. Where PVE meets it. volume_rollback_is_possible runs for every disk of
+#     the guest BEFORE the guest is stopped and locked, which is what makes a
+#     refusal there cost nothing. 'dell-rollback-any-snapshot' is about
+#     snapshots and must not switch this off.
+{
+    no warnings 'redefine', 'once';
+    my ($array, $api) = mini_store();
+    $array->seed_group(id => 'vg-fin', name => 'finance-vg',
+        description => 'Finance VMs',
+        is_write_order_consistent => JSON::true);
+    $array->{volumes}{'v-1'}{group} = 'vg-fin';
+    local *PVE::Storage::Custom::DellPowerStorePlugin::_api = sub { $api };
+    local *PVE::Storage::Custom::DellPowerStorePlugin::volume_snapshot_list
+        = sub { [ { name => 'snap1', ctime => 100 } ] };
+
+    for my $scfg ({}, { 'dell-rollback-any-snapshot' => 1 }) {
+        my $label = %$scfg ? ' with dell-rollback-any-snapshot' : '';
+        ok(!eval { $P->volume_rollback_is_possible($scfg, 'ps1',
+                       'vm-104-disk-0', 'snap1', []); 1 },
+            "PVE is told the rollback is not possible$label");
+        like($@, qr/^Cannot roll back 'ps1:vm-104-disk-0' to 'snap1': it is a member/,
+            '... in a sentence that names the volume PVE asked about');
+    }
+
+    $array->{groups}{'vg-fin'}{is_write_order_consistent} = JSON::false;
+    ok(eval { $P->volume_rollback_is_possible({}, 'ps1', 'vm-104-disk-0',
+                  'snap1', []); 1 },
+        '... and once the setting is off on the array, it is') or diag($@);
 }
 
 done_testing();
