@@ -26,6 +26,7 @@ my $OWNER;
 sub common_properties {
     return {
         'dell-portal' => {
+            title => "Management Address",
             description => "Management address(es) of the array. Several may"
                 . " be given comma-separated - on an array whose controllers"
                 . " each have their own management IP and no floating address"
@@ -35,19 +36,23 @@ sub common_properties {
             type => 'string',
         },
         'dell-username' => {
+            title => "Username",
             description => "Username for the array's management API.",
             type => 'string',
         },
         'dell-password' => {
+            title => "Password",
             description => "Password for the array's management API.",
             type => 'string',
         },
         'dell-ssl-verify' => {
+            title => "Verify SSL Certificate",
             description => "Verify the array's SSL certificate.",
             type => 'boolean',
             default => 0,
         },
         'dell-protocol' => {
+            title => "Protocol",
             description => "Data path: 'iscsi' or 'fc' on the SAN families,"
                 . " 'sdc' or 'nvme' on PowerFlex.",
             type => 'string',
@@ -55,6 +60,7 @@ sub common_properties {
             default => 'iscsi',
         },
         'dell-name-prefix' => {
+            title => "Name Prefix",
             description => "Leading component of every object this storage"
                 . " creates on the array, so 'pve-<storage>-<vmid>-disk0'"
                 . " becomes '<prefix>-<storage>-<vmid>-disk0'. Defaults to"
@@ -71,6 +77,7 @@ sub common_properties {
             optional => 1,
         },
         'dell-host-mode' => {
+            title => "Host Mode",
             description => "How host objects are created on the array."
                 . " 'per-node' registers one host per PVE node, which is what"
                 . " lets the array report per-node connectivity. 'shared'"
@@ -91,6 +98,7 @@ sub common_properties {
             default => 'per-node',
         },
         'dell-cluster-name' => {
+            title => "Cluster Name",
             description => "Cluster name used when naming host objects on the"
                 . " array. Distinguishes several PVE clusters sharing one array.",
             type => 'string',
@@ -98,6 +106,7 @@ sub common_properties {
             optional => 1,
         },
         'dell-device-timeout' => {
+            title => "Device Timeout (s)",
             description => "Seconds to wait for a volume's device to appear"
                 . " after it has been mapped.",
             type => 'integer',
@@ -106,6 +115,7 @@ sub common_properties {
             default => 60,
         },
         'dell-portal-probe-timeout' => {
+            title => "Portal Probe Timeout (s)",
             description => "Seconds for the TCP pre-check that skips iSCSI"
                 . " portals this node cannot reach, before iscsiadm discovery"
                 . " and login are attempted. Arrays routinely publish more"
@@ -118,6 +128,7 @@ sub common_properties {
             default => 2,
         },
         'dell-status-timeout' => {
+            title => "Status Timeout (s)",
             description => "API timeout in seconds on the pvestatd health path"
                 . " (activate_storage and the foreground of status). That path"
                 . " is polled roughly every 10 seconds and PVE processes"
@@ -131,6 +142,7 @@ sub common_properties {
             default => 5,
         },
         'dell-activate-deadline' => {
+            title => "Activation Deadline (s)",
             description => "Cumulative wall-clock budget in seconds for the"
                 . " iSCSI portal discovery and login loop in activate_storage."
                 . " Once the budget is spent AND at least one portal is logged"
@@ -142,6 +154,7 @@ sub common_properties {
             default => 30,
         },
         'dell-rollback-any-snapshot' => {
+            title => "Rollback to Any Snapshot",
             description => "Allow rolling back to a snapshot that is not the"
                 . " most recent one. Off by default: Dell does not document"
                 . " what a restore does to the snapshots taken after the one"
@@ -154,6 +167,7 @@ sub common_properties {
             optional => 1,
         },
         'dell-config-backup' => {
+            title => "Config Backup",
             description => "Write the VM configuration to a small volume"
                 . " beside each snapshot, so it can be recovered when"
                 . " /etc/pve is gone. Each snapshot of a VM costs one extra"
@@ -165,6 +179,7 @@ sub common_properties {
             optional => 1,
         },
         'dell-config-backup-timeout' => {
+            title => "Config Backup Timeout (s)",
             description => "Seconds to wait for the auxiliary 1 MB config"
                 . " backup volume's device. That volume is only read by"
                 . " pve-dell-config-get for disaster recovery, so it has a"
@@ -179,6 +194,7 @@ sub common_properties {
             default => 15,
         },
         'dell-rescan-interval' => {
+            title => "Rescan Interval (s)",
             description => "Minimum seconds between the periodic SAN rescans"
                 . " activate_storage performs. PVE calls activate_storage on"
                 . " every pvestatd poll, so running a host-wide multipath"
@@ -226,6 +242,37 @@ sub common_options {
         content => { optional => 1 },
         shared  => { optional => 1 },
     };
+}
+
+# The shared options PVE 9.3's generated add/edit dialog puts under
+# "Advanced" rather than on the first page. Tuning knobs with defaults that
+# fit, and the two names that must not change after 'pvesm add'. Nothing is
+# HIDDEN: a hidden option cannot be set from the dialog at all, and every one
+# of these is something an operator may need. Older PVE ignores the key.
+sub advanced_properties {
+    return {
+        map { $_ => 1 } qw(
+            dell-name-prefix dell-cluster-name
+            dell-device-timeout dell-portal-probe-timeout dell-status-timeout
+            dell-activate-deadline dell-rescan-interval
+            dell-rollback-any-snapshot
+            dell-config-backup dell-config-backup-timeout
+        )
+    };
+}
+
+# The plugindata() keys PVE 9.3 reads to build a third-party plugin's dialog:
+# the advanced section and the type's display name. A family adds its own
+# advanced options. Ignored by PVE before 9.3, which has no such dialog.
+sub ui_plugindata {
+    my ($class, $display_name, @family_advanced) = @_;
+    return (
+        'advanced-properties' => {
+            %{ $class->advanced_properties() },
+            map { $_ => 1 } @family_advanced,
+        },
+        meta => { 'display-name' => $display_name },
+    );
 }
 
 # What a family plugin's properties() should return: its own, plus the shared

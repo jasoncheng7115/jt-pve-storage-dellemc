@@ -355,6 +355,31 @@ the poll runs in a forked child. Send that along with the version
 The mitigation that works regardless is a dedicated account with a short
 session timeout — see `docs/CONFIGURATION.md`.
 
+## PVE 9.3: Node > SAN lists this plugin's volumes as unused
+
+Proxmox VE 9.3 added a SAN view per node, which lists every SAN LUN the node
+sees and can **wipe** one or **create a volume group** on it. Do not do
+either to a volume of this plugin. Both destroy the guest disk on the array.
+
+The view decides whether a LUN is in use from PVE's own storages: an LVM
+volume group, an iSCSI target, an NVMe over Fabrics subsystem, an LVM base
+volume. It has no way to ask a third-party plugin, so a volume of this
+plugin counts as in use only while a process **on the same node** has it
+open for writing. Volumes stay mapped to every node, which is what lets a
+guest migrate, so on every node but the one running it, even a running
+guest's disk is listed as `unused`. The disk of a stopped guest, a template
+and the clone a backup reads through are `unused` everywhere. PVE lets all
+of them be wiped, and partitions on the LUN do not stop it: the wipe clears
+them first. Measured by running PVE 9.3's own LUN scan against
+another vendor's third-party plugin, whose LUNs are attached in the same way
+as these.
+
+Before acting on a LUN in that view, look it up on the array. A volume this
+plugin created carries the storage's name prefix (`pve-<storeid>-` unless
+`dell-name-prefix` says otherwise). A LUN whose vendor is Dell, on a node
+with a storage of this plugin, should be assumed to be one of them until the
+array says otherwise.
+
 ## Collecting information for a bug report
 
 ```bash

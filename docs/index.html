@@ -175,7 +175,7 @@
     <div class="hero__glow"></div>
     <div class="hero__glow-left"></div>
     <div class="hero__content">
-        <div class="hero__badge">v0.8.33~beta1 <span class="hero__badge-sep"></span> MIT License</div>
+        <div class="hero__badge">v0.8.34~beta1 <span class="hero__badge-sep"></span> MIT License</div>
         <h1 class="hero__title">jt-pve-storage-dellemc</h1>
         <p class="hero__project-desc">
             <span class="lang-en">Dell EMC Storage Plugins for Proxmox VE</span>
@@ -575,8 +575,8 @@
                 <th><span class="lang-en">Compatibility</span><span class="lang-zh">相容性</span></th>
             </tr></thead>
             <tbody>
-                <tr><td>PVE 9.1+</td><td><span class="lang-en">13&ndash;15, negotiated</span><span class="lang-zh">13&ndash;15，自動協商</span></td><td><span class="status-badge status-badge--supported">
-                    <span class="lang-en">Supported &mdash; the ME4024 run was on PVE 9.2.5 (APIVER 15)</span><span class="lang-zh">支援 &mdash; ME4024 的實測就在 PVE 9.2.5（APIVER 15）上</span>
+                <tr><td>PVE 9.1+</td><td><span class="lang-en">13&ndash;17, negotiated</span><span class="lang-zh">13&ndash;17，自動協商</span></td><td><span class="status-badge status-badge--supported">
+                    <span class="lang-en">Supported &mdash; the ME4024 run was on PVE 9.2.5 (APIVER 15). PVE 9.3 (APIVER 17): the test suite passes against its packages; not yet run on a 9.3 node</span><span class="lang-zh">支援 &mdash; ME4024 的實測就在 PVE 9.2.5（APIVER 15）上。PVE 9.3（APIVER 17）：測試套件對它的套件全數通過，尚未在 9.3 節點上實跑</span>
                 </span></td></tr>
                 <tr><td>PVE 9.0</td><td>12</td><td>
                     <span class="lang-en">Untested</span><span class="lang-zh">未測試</span>
@@ -1191,8 +1191,8 @@ DellPowerFlexPlugin                  <span class="comment"># no SCSI LUN, no mul
         <span class="lang-zh">驗證狀態</span>
     </h2>
     <p class="section-subtitle">
-        <span class="lang-en">3,473 unit tests run without an array or a device. What they cannot tell you is whether the endpoints exist, whether the field names are right, or whether a device ever appears &mdash; only an array can, and exactly one has.</span>
-        <span class="lang-zh">3,473 個單元測試不需要儲存伺服器或實體裝置即可執行。它們無法告訴你的是：端點是否存在、欄位名稱是否正確、裝置到底會不會出現 &mdash; 那隻有儲存伺服器能回答，而目前只有一台回答過。</span>
+        <span class="lang-en">3,505 unit tests run without an array or a device. What they cannot tell you is whether the endpoints exist, whether the field names are right, or whether a device ever appears &mdash; only an array can, and exactly one has.</span>
+        <span class="lang-zh">3,505 個單元測試不需要儲存伺服器或實體裝置即可執行。它們無法告訴你的是：端點是否存在、欄位名稱是否正確、裝置到底會不會出現 &mdash; 那只有儲存伺服器能回答，而目前只有一台回答過。</span>
     </p>
 
     <h3>
@@ -1352,6 +1352,15 @@ DellPowerFlexPlugin                  <span class="comment"># no SCSI LUN, no mul
         <span class="lang-en">Changelog</span>
         <span class="lang-zh">變更紀錄</span>
     </h2>
+
+    <div class="changelog-entry">
+        <div class="changelog-version">v0.8.34~beta1</div>
+        <div class="changelog-date">2026-11-27</div>
+        <div class="changelog-summary">
+            <span class="lang-en">Proxmox VE 9.3 support. The storage API is negotiated up to 17, so 9.3 no longer warns on every pvesm call; neither new version needs anything from this plugin. PVE 9.3&rsquo;s generated add/edit dialog now shows a label for every option, puts the tuning options under Advanced and names each type. A raw+size import (pvesm import, the receiving end of a remote migration) accepted a stream that ended early, because dd treats any end of input as success; the byte count is now checked against the stream header and a short stream fails and frees the volume. TROUBLESHOOTING documents that 9.3&rsquo;s Node &gt; SAN view lists this plugin&rsquo;s volumes as unused and allows wiping them, including a running guest&rsquo;s disk on every other node.</span>
+            <span class="lang-zh">支援 Proxmox VE 9.3。儲存 API 會協商到 17，9.3 不再於每次執行 pvesm 時發出警告；兩個新版本都不需要外掛做任何事。PVE 9.3 自動產生的新增／編輯對話框，現在每個選項都有標籤，調校用的選項放在「進階」，每個 type 也有自己的顯示名稱。raw+size 匯入（pvesm import、跨叢集移轉的接收端）會接受提早中斷的串流，因為 dd 讀到輸入結尾就當作成功；現在會用串流標頭核對位元組數，串流不完整就失敗並刪除磁碟區。TROUBLESHOOTING 記載了 9.3 的「節點 &gt; SAN」頁面會把本外掛的磁碟區列為未使用並允許抹除，連執行中客體的磁碟在其他每個節點上也一樣。</span>
+        </div>
+    </div>
 
     <div class="changelog-entry">
         <div class="changelog-version">v0.8.33~beta1</div>

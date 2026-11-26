@@ -1457,15 +1457,20 @@ SKIP: {
 
     my @dd;
     my $fail_dd = 0;
+    # What the stubbed dd reports having copied, through the stderr summary
+    # the real one prints. undef prints no summary at all.
+    my $dd_copied = 5000;
 
     no warnings 'redefine', 'once';
     local *Test::Plugin::activate_volume = sub { 1 };
     local *Test::Plugin::_transfer_device =
         sub { return ('/dev/mapper/3600a0980deadbeef', '3600a0980deadbeef') };
     local *PVE::Tools::run_command = sub {
-        my ($cmd) = @_;
+        my ($cmd, %opts) = @_;
         push @dd, $cmd;
         die "dd failed\n" if $fail_dd;
+        $opts{errfunc}->("$dd_copied bytes (5.0 kB, 4.9 KiB) copied, 0.001 s, 5 MB/s")
+            if $opts{errfunc} && defined $dd_copied;
         return 0;
     };
 
@@ -1508,6 +1513,56 @@ SKIP: {
       . ' orphan on the array');
     ok(!$Test::Plugin::VOLUMES{'pve-t1-100-disk0'},
         '... so nothing is left behind');
+
+    # A stream that ends early. dd exits 0 on any end of its input, so the
+    # byte count is the only thing that tells a migration whose sender died
+    # from one that finished.
+    $fail_dd = 0;
+    for my $case ([4096, qr/ended after 4096 of 5000 bytes/, 'a short stream'],
+                  [6000, qr/carried 6000 bytes.*announced 5000/, 'a long stream'],
+                  [undef, qr/no byte count/,
+                   'a dd whose summary cannot be read (rule 20a)']) {
+        my ($copied, $re, $what) = @$case;
+        Test::Plugin->reset_state();
+        $dd_copied = $copied;
+        open(my $fh3, '<', $stream_file) or die;
+        my $got = eval { Test::Plugin->volume_import($scfg, 't1', $fh3,
+            'vm-100-disk-0', 'raw+size', undef, undef, 0, 1) };
+        my $err = $@;
+        ok(!defined $got, "$what is not reported as imported");
+        like($err, $re, '... and says why');
+        ok(!$Test::Plugin::VOLUMES{'pve-t1-100-disk0'},
+            '... and the incomplete volume is freed');
+    }
+}
+
+{
+    # import_raw_stream against a real dd, writing into a plain file: the
+    # summary line it parses is dd's, not a stub's.
+    SKIP: {
+        skip 'PVE::Tools is not installed', 3
+            unless eval { require PVE::Tools; 1 };
+        my $import = \&PVE::Storage::Custom::DellEMC::Common::Multipath::import_raw_stream;
+
+        my $src = "$TMP/raw-src";
+        { open my $o, '>', $src or die; binmode $o; print {$o} 'x' x 70000; close $o }
+
+        # dd's own lines are passed through to STDERR. Silenced by dup'ing,
+        # not by localising the glob: run_command's open3 needs a real fd 2.
+        open(my $saved_err, '>&', \*STDERR) or die;
+        open(STDERR, '>', '/dev/null') or die;
+
+        open(my $in, '<', $src) or die;
+        is(eval { $import->($in, "$TMP/raw-dst", 70000) }, 70000,
+            'a whole stream passes, through a real dd') or diag $@;
+
+        open($in, '<', $src) or die;
+        ok(!eval { $import->($in, "$TMP/raw-dst", 80000); 1 },
+            'a real dd that read fewer bytes than announced is refused');
+        my $err = $@;
+        open(STDERR, '>&', $saved_err) or die;
+        like($err, qr/ended after 70000 of 80000/, '... with both numbers');
+    }
 }
 
 {

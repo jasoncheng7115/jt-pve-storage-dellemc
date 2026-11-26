@@ -99,9 +99,13 @@ sub _vendor_re { qr/DellEMC|DELL\s*EMC/i }
 # Schema
 # ---------------------------------------------------------------------------
 
+sub display_name { "Dell PowerVault ME" }
+sub advanced_family_properties { return ('pvault-lun-id-base') }
+
 sub family_properties {
     return {
         'pvault-pool' => {
+            title => "Pool",
             description => "Pool that new volumes are created in. Required on"
                 . " an array with more than one pool; with a single pool the"
                 . " array chooses it.",
@@ -109,12 +113,14 @@ sub family_properties {
             optional => 1,
         },
         'pvault-volume-group' => {
+            title => "Volume Group",
             description => "Place every volume of this storage in the named"
                 . " volume group. The group must already exist on the array.",
             type => 'string',
             optional => 1,
         },
         'pvault-tier-affinity' => {
+            title => "Tier Affinity",
             description => "Tier affinity for new volumes on an array with"
                 . " tiered storage.",
             type => 'string',
@@ -123,6 +129,7 @@ sub family_properties {
             optional => 1,
         },
         'pvault-lun-id-base' => {
+            title => "Lowest LUN ID",
             description => "Lowest LUN id this plugin assigns when mapping a"
                 . " volume. The array requires a LUN whenever an initiator is"
                 . " named, so the plugin picks the lowest free one rather than"

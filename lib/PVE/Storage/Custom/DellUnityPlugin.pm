@@ -123,9 +123,12 @@ sub supported_protocols { ['fc', 'iscsi'] }
 # Schema
 # ---------------------------------------------------------------------------
 
+sub display_name { "Dell Unity XT" }
+
 sub family_properties {
     return {
         'unity-pool' => {
+            title => "Pool",
             description => "Pool that new LUNs are created in. Required on an"
                 . " array with more than one pool; with a single pool the"
                 . " plugin uses it.",
@@ -133,6 +136,7 @@ sub family_properties {
             optional => 1,
         },
         'unity-thin' => {
+            title => "Thin Provisioning",
             description => "Create thin LUNs. Thin provisioning must be"
                 . " licensed on the array.",
             type => 'boolean',

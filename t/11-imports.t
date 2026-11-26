@@ -492,7 +492,7 @@ for my $file (sort @files) {
         my $src = do { open my $fh, '<', $file or die "$file: $!"; local $/; <$fh> };
         $text{$file} = $src;
 
-        while ($src =~ /'((?:dell|pstore|pvault|unity|pflex)-[a-z0-9-]+)'\s*=>\s*\{\s*\n\s*description\s*=>/g) {
+        while ($src =~ /'((?:dell|pstore|pvault|unity|pflex)-[a-z0-9-]+)'\s*=>\s*\{\s*\n(?:\s*title\s*=>[^\n]*\n)?\s*description\s*=>/g) {
             $declared{$1} //= $file;
         }
     }

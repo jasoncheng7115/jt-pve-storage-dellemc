@@ -17,7 +17,7 @@ use PVE::Storage::Custom::DellEMC::Common::Health;
 use PVE::Storage::Custom::DellEMC::PowerFlex::API;
 use PVE::Storage::Custom::DellEMC::PowerFlex::Naming;
 use PVE::Storage::Custom::DellEMC::Common::Multipath qw(
-    is_block_device is_device_in_use device_size_bytes
+    is_block_device is_device_in_use device_size_bytes import_raw_stream
 );
 use PVE::Storage::Custom::DellEMC::PowerFlex::Host qw(
     sdc_available sdc_guid sdc_device_for_volume
@@ -39,8 +39,10 @@ use PVE::Storage::Custom::DellEMC::PowerFlex::Host qw(
 # Negotiated, not hardcoded: PVE rejects a plugin claiming more than its own
 # APIVER (the storage then vanishes from the node) and warns on every load
 # when the claim is lower. PVE 9 raised APIVER twice inside the 9.1 point
-# releases. See the long note in Common::BlockBase.
-use constant APIVERSION_MAX      => 15;
+# releases, and 9.3 to 17. See the long note in Common::BlockBase; the
+# deltas it lists hold here too, because alloc_image(), rename_volume() and
+# parse_volname() are this file's own as well.
+use constant APIVERSION_MAX      => 17;
 use constant APIVERSION_MIN      => 9;
 use constant APIVERSION_FALLBACK => 13;
 
@@ -82,6 +84,10 @@ sub plugindata {
         # and looks the answer up in plugindata. Without this the array
         # password is written to /etc/pve/storage.cfg in clear text.
         'sensitive-properties' => { 'dell-password' => 1 },
+
+        # PVE 9.3's generated storage dialog; see Common::Schema.
+        $SCHEMA->ui_plugindata('Dell PowerFlex',
+            qw(pflex-nvme-ctrl-loss-tmo pflex-nvme-io-queues)),
     };
 }
 
@@ -98,17 +104,20 @@ sub options {
 sub family_properties {
     return {
         'pflex-storage-pool' => {
+            title => "Storage Pool",
             description => "Storage pool that volumes are created in."
                 . " Required: PowerFlex has no default pool.",
             type => 'string',
         },
         'pflex-protection-domain' => {
+            title => "Protection Domain",
             description => "Protection domain of the storage pool. Only needed"
                 . " when the same pool name exists in more than one domain.",
             type => 'string',
             optional => 1,
         },
         'pflex-nvme-ctrl-loss-tmo' => {
+            title => "NVMe Controller Loss Timeout (s)",
             description => "Seconds the kernel keeps retrying a lost NVMe"
                 . " controller before it fails the I/O. This is the NVMe"
                 . " equivalent of no_path_retry on the SAN families: the"
@@ -123,6 +132,7 @@ sub family_properties {
             optional => 1,
         },
         'pflex-nvme-io-queues' => {
+            title => "NVMe I/O Queues",
             description => "Number of NVMe/TCP I/O queues per controller."
                 . " Leave unset to let the kernel decide, which is normally"
                 . " one queue per CPU.",
@@ -132,6 +142,7 @@ sub family_properties {
             optional => 1,
         },
         'pflex-thick' => {
+            title => "Thick Provisioning",
             description => "Create thick-provisioned volumes. Thin is the"
                 . " default and is what makes snapshots and clones cheap.",
             type => 'boolean',
@@ -1758,11 +1769,9 @@ sub volume_import {
         # No conv=sparse: skipping a run of zeroes is only correct where the
         # region already reads as zeroes, which a thin volume guarantees and
         # a thick one does not — and 'pflex-thick' is an operator's choice.
-        # See the same comment in BlockBase.
-        PVE::Tools::run_command(
-            ['/bin/dd', "of=$device", 'bs=64k'],
-            input => '<&' . fileno($fh),
-        );
+        # See the same comment in BlockBase, which also explains the byte
+        # count check.
+        import_raw_stream($fh, $device, $bytes);
     };
     if (my $err = $@) {
         eval { $class->free_image($storeid, $scfg, $allocname, 0) };

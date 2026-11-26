@@ -57,6 +57,7 @@ use PVE::Storage::Custom::DellEMC::Common::Multipath qw(
     list_vendor_multipath_devices
     describe_wwid_state
     multipath_path_health
+    import_raw_stream
 );
 
 # Everything a Dell EMC block family plugin does that is not specific to one
@@ -87,11 +88,25 @@ use PVE::Storage::Custom::DellEMC::Common::Multipath qw(
 # implemented here, is both quiet and safe: api() is only a load-time gate,
 # and PVE calls plugin methods with its own current signatures regardless.
 #
-# Raise APIVERSION_MAX only after implementing that version's delta:
-#   14  volume_resize gained a $snapname parameter (rejected here — this
-#       plugin does not do snapshot-as-volume-chain)
-#   15  get_identity()
-use constant APIVERSION_MAX => 15;
+# Raise APIVERSION_MAX only after implementing that version's delta. The
+# authority is pve-storage's ApiChangeLog, not memory: an earlier copy of this
+# list had 14 and 15 the wrong way round.
+#   14  get_identity()
+#   15  volume_resize gained a $snapname parameter (rejected here — this
+#       plugin does not do snapshot-as-volume-chain), and
+#       volume_snapshot_info() gained 'virtual-size', which only the
+#       volume-chain path reads
+#   16  volname_for_format() and friends. PVE calls them only from the base
+#       alloc_image() and rename_volume(), and both are overridden here
+#       without SUPER
+#   17  the guest volume types vm-vol, vm-state and ct-vol. parse_volname()
+#       keeps answering 'images', which PVE 9.3 accepts wherever a VM volume
+#       type is expected; plugindata() does not offer the new content types,
+#       because restricting a storage to 'vm-state' would refuse volumes this
+#       parser calls 'images'. 'isolate-properties' is not set either: PVE
+#       before 9.3 refuses it, so it would have to follow the running PVE,
+#       and Common::Schema already keeps the dell-* names from clashing
+use constant APIVERSION_MAX => 17;
 use constant APIVERSION_MIN => 9;
 
 # What to claim when PVE::Storage is not loaded at all, i.e. perl -c and the
@@ -171,6 +186,7 @@ sub common_options    { return $SCHEMA->common_options() }
 # Block families are raw-only and hold VM disks and container root
 # filesystems. A family that is not block-based must not inherit this class.
 sub plugindata {
+    my ($class) = @_;
     return {
         content => [ { images => 1, rootdir => 1 }, { images => 1 } ],
         format  => [ { raw => 1 }, 'raw' ],
@@ -189,8 +205,19 @@ sub plugindata {
         # writes it to /etc/pve/priv/storage/<storeid>.pw at mode 0600 -
         # where PBS keeps its own.
         'sensitive-properties' => { 'dell-password' => 1 },
+
+        # PVE calls plugindata() as a class method on the registered type, so
+        # each family names itself here without overriding the whole hash.
+        PVE::Storage::Custom::DellEMC::Common::Schema->ui_plugindata(
+            $class->display_name, $class->advanced_family_properties),
     };
 }
+
+# The name PVE 9.3's storage dialog shows for this type.
+sub display_name { my ($class) = @_; return $class->type }
+
+# This family's options that belong under "Advanced" in that dialog.
+sub advanced_family_properties { return () }
 
 # ---------------------------------------------------------------------------
 # The array's password
@@ -3575,10 +3602,10 @@ sub volume_import {
         # import and nothing else; the other way round leaves another
         # tenant's old data readable inside the imported disk. LVMPlugin
         # writes every byte too.
-        PVE::Tools::run_command(
-            ['/bin/dd', "of=$device", 'bs=64k'],
-            input => '<&' . fileno($fh),
-        );
+        #
+        # And the byte count is checked against the header: dd calls a
+        # stream that was cut off a success.
+        import_raw_stream($fh, $device, $bytes);
     };
     if (my $err = $@) {
         # A half-written volume with no VM configuration pointing at it is an

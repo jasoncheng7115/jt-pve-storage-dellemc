@@ -88,9 +88,13 @@ sub identity_suffix {
 # Schema
 # ---------------------------------------------------------------------------
 
+sub display_name { "Dell PowerStore" }
+sub advanced_family_properties { return ('pstore-lun-id-base') }
+
 sub family_properties {
     return {
         'pstore-appliance' => {
+            title => "Appliance",
             description => "Name or id of the appliance new volumes are placed"
                 . " on, in a multi-appliance cluster. Leave unset to let"
                 . " PowerStore choose.",
@@ -98,6 +102,7 @@ sub family_properties {
             optional => 1,
         },
         'pstore-volume-group' => {
+            title => "Volume Group",
             description => "Place every volume of this storage in the named"
                 . " volume group, which gives them a namespace on the array"
                 . " and lets protection policies apply to them as a unit. The"
@@ -109,6 +114,7 @@ sub family_properties {
             optional => 1,
         },
         'pstore-volume-group-per-vm' => {
+            title => "Volume Group per VM",
             description => "Put each VM's disks in a volume group of their own,"
                 . " created and removed by this plugin, so that array-side"
                 . " protection policies and consistent group snapshots can be"
@@ -125,6 +131,7 @@ sub family_properties {
             optional => 1,
         },
         'pstore-performance-policy' => {
+            title => "Performance Policy",
             description => "Performance policy applied to new volumes.",
             type => 'string',
             enum => ['High', 'Medium', 'Low'],
@@ -132,6 +139,7 @@ sub family_properties {
             optional => 1,
         },
         'pstore-protection-policy' => {
+            title => "Protection Policy",
             description => "Protection policy (snapshot and replication rules)"
                 . " applied to new volumes. The policy must already exist on"
                 . " the array.",
@@ -139,6 +147,7 @@ sub family_properties {
             optional => 1,
         },
         'pstore-lun-id-base' => {
+            title => "Lowest LUN ID",
             description => "Lowest LUN id this plugin assigns when attaching a"
                 . " volume. The plugin assigns LUN ids itself because"
                 . " PowerStore's automatic REST-side sequence starts at 200 and"

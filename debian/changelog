@@ -1,3 +1,23 @@
+jt-pve-storage-dellemc (0.8.34~beta1-1) unstable; urgency=medium
+
+  * BETA RELEASE. Not for production use.
+  * Proxmox VE 9.3 support: the storage API version is negotiated up to 17,
+    so PVE 9.3 no longer warns on every pvesm call. Versions 16 and 17 need
+    nothing from this plugin; the new guest volume types are accepted
+    wherever images is, and the new content types are not offered.
+  * PVE 9.3's generated add/edit dialog: every option has a title, tuning
+    options sit under Advanced, and each type has a display name. Ignored by
+    earlier PVE.
+  * Fixed: a raw+size import (pvesm import, the receiving end of a remote
+    migration) accepted a stream that ended early, because dd treats any end
+    of input as success. The received byte count is now checked against the
+    stream header, and a short or long stream fails and frees the volume.
+  * Documented: PVE 9.3's Node > SAN view lists this plugin's volumes as
+    unused and allows wiping them, including a running guest's disk on every
+    other node.
+
+ -- Jason Cheng <jason@jason.tools>  Fri, 27 Nov 2026 12:00:00 +0800
+
 jt-pve-storage-dellemc (0.8.33~beta1-1) unstable; urgency=medium
 
   * BETA RELEASE. Not for production use.

@@ -44,6 +44,7 @@ our @EXPORT_OK = qw(
     get_device_usage_details
     describe_wwid_state
     default_vendor_re
+    import_raw_stream
 );
 
 # Host-side device handling shared by the Dell EMC block plugins. Ported from
@@ -1725,6 +1726,57 @@ sub _multipath_setting {
     }
 
     return undef;
+}
+
+# Write the data half of a 'raw+size' stream onto $device and die unless it
+# delivered exactly the $size bytes its header announced.
+#
+# dd takes any end of its input as success. A migration whose sender died, or
+# whose tunnel dropped, ends the stream early, dd exits 0, and the import
+# returned a volume id for a disk whose tail is whatever the array had there
+# before — which PVE then attaches to the guest as though it were the copy.
+# PVE 9.3 added the same check for its own plugins (import_raw_stream in
+# PVE::Storage::Plugin); it is reimplemented here because 9.1 and 9.2, which
+# this plugin also runs on, do not have it.
+#
+# Unlike PVE's, a dd summary that cannot be read is a refusal rather than a
+# warning (rule 20a): the check exists to tell a whole disk from a truncated
+# one, and "could not tell" is not "whole". With LC_ALL=C dd always prints the
+# line, so this should only ever fire on a dd that did not finish.
+#
+# Not bounded by an alarm: a bulk copy of a whole disk legitimately runs for
+# hours, and rule 5's bound is for the poll paths.
+sub import_raw_stream {
+    my ($fh, $device, $size) = @_;
+
+    croak "import_raw_stream: no size to check the stream against"
+        unless defined $size && $size > 0;
+
+    require PVE::Tools;
+
+    my $copied;
+    {
+        local $ENV{LC_ALL} = 'C';
+        PVE::Tools::run_command(
+            ['/bin/dd', "of=$device", 'bs=64k'],
+            input   => '<&' . fileno($fh),
+            errfunc => sub {
+                my ($line) = @_;
+                $copied = $1 if $line =~ m/^(\d+) bytes?\b.*\bcopied\b/;
+                print STDERR "$line\n";
+            },
+        );
+    }
+
+    die "import: dd reported no byte count, so whether the stream arrived"
+      . " whole cannot be established. Refusing to call it imported.\n"
+        unless defined $copied;
+    die "import: the stream ended after $copied of $size bytes\n"
+        if $copied < $size;
+    die "import: the stream carried $copied bytes, but its header announced"
+      . " $size\n" if $copied > $size;
+
+    return $copied;
 }
 
 1;

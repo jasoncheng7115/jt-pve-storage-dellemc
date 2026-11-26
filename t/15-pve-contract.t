@@ -31,6 +31,19 @@ my @PLUGINS = qw(
     PVE::Storage::Custom::DellUnityPlugin
 );
 
+# The generic type of a guest volume type: 'vm-vol' and 'vm-state' are
+# 'images', 'ct-vol' is 'rootdir'. PVE before 9.3 has neither the types nor
+# the helper, and answers 'images' anyway.
+sub _generic_vtype {
+    my ($vtype) = @_;
+    my $generic = eval {
+        require PVE::Storage::Common;
+        PVE::Storage::Common->can('generic_vtype')
+            ? PVE::Storage::Common::generic_vtype($vtype) : undef;
+    };
+    return $generic // $vtype;
+}
+
 # ---------------------------------------------------------------------------
 # API version
 # ---------------------------------------------------------------------------
@@ -291,9 +304,15 @@ for my $plugin (@PLUGINS) {
             # isBase is compared as a truth value: RBD leaves it undef for a
             # clone where this plugin returns 0, and every consumer asks
             # `if ($isBase)`.
+            #
+            # The vtype is compared by its generic type. From PVE 9.3 (storage
+            # API 17) RBD answers 'vm-vol' and this plugin keeps answering
+            # 'images', which the ApiChangeLog allows and which every check in
+            # PVE accepts through PVE::Storage::Common::vtype_matches — see
+            # the note on APIVERSION_MAX in Common::BlockBase.
             is_deeply(
-                [@ours[0 .. 4], ($ours[5] ? 1 : 0), $ours[6]],
-                [@rbd[0 .. 4],  ($rbd[5]  ? 1 : 0), $rbd[6]],
+                [_generic_vtype($ours[0]), @ours[1 .. 4], ($ours[5] ? 1 : 0), $ours[6]],
+                [_generic_vtype($rbd[0]),  @rbd[1 .. 4],  ($rbd[5]  ? 1 : 0), $rbd[6]],
                 "$plugin parses a linked clone the way RBDPlugin does")
                 or diag("ours: @{[ map { $_ // 'undef' } @ours ]}\n"
                       . " rbd: @{[ map { $_ // 'undef' } @rbd  ]}");
@@ -480,6 +499,16 @@ my %BASE_DEFAULT_IS_RIGHT = (
     # wants: the array takes the snapshot, not QEMU. LVM overrides it for
     # qcow2-on-LVM and RBD for the non-krbd case; neither exists here.
     volume_qemu_snapshot_method => 'always raw, so the base answers "storage"',
+
+    # Storage API 16 (PVE 9.3). PVE reaches it only through
+    # volname_for_format(), which only the base alloc_image() and
+    # rename_volume() call. Both are overridden here and neither calls SUPER,
+    # so the base default is never consulted. LVM and RBD override it because
+    # their own alloc_image() does call volname_for_format(). If an override
+    # here ever starts calling it, this entry is wrong: an array volume name
+    # carries no file extension, and the base reads one as the format.
+    get_parsed_format => 'only reached through the base alloc_image and'
+                       . ' rename_volume, which are both overridden',
 );
 
 {
@@ -783,6 +812,46 @@ my %BASE_DEFAULT_IS_RIGHT = (
               . " is freed on return and its session goes back — a cached one"
               . " lives until POSIX::_exit and is never returned");
         }
+    }
+}
+
+# ---------------------------------------------------------------------------
+# PVE 9.3's generated storage dialog
+#
+# PVE 9.3 builds the add/edit dialog for a third-party type from plugindata()
+# and the property schemas. A name in 'advanced-properties' that the type does
+# not offer would be a field that silently never appears, and a property
+# without a title is labelled with its raw name. Older PVE ignores all of it,
+# which is why this is checked here rather than seen in a browser.
+# ---------------------------------------------------------------------------
+
+{
+    my $common = PVE::Storage::Custom::DellEMC::Common::Schema->common_properties();
+    for my $plugin (@PLUGINS) {
+        my $pd = $plugin->plugindata();
+        my $options = $plugin->options();
+        my %props = (%$common, %{ $plugin->family_properties() });
+
+        my $name = $pd->{meta}{'display-name'};
+        like($name // '', qr/^Dell /, "$plugin names itself in the dialog")
+            or diag("got: " . ($name // 'undef'));
+
+        my @unknown = grep { !$options->{$_} }
+                      sort keys %{ $pd->{'advanced-properties'} // {} };
+        is_deeply(\@unknown, [],
+            "$plugin lists only options it offers as advanced");
+
+        ok(!$pd->{'advanced-properties'}{'dell-portal'}
+            && !$pd->{'advanced-properties'}{'dell-password'},
+            "$plugin keeps the address and password on the first page");
+
+        ok(!exists $pd->{'hidden-properties'},
+            "$plugin hides nothing: a hidden option cannot be set from the"
+          . " dialog at all");
+
+        my @untitled = grep { !defined $props{$_}{title} }
+                       grep { $props{$_} } sort keys %$options;
+        is_deeply(\@untitled, [], "$plugin gives every option of its own a title");
     }
 }
 

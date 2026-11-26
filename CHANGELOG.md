@@ -7,6 +7,53 @@ Versioning: the patch number increments per release and runs to .99 before
 the minor number moves — 0.7.0, 0.7.1, … 0.7.99, then 0.8.0. Every 0.x
 release is a prerelease; 1.0.0 is the on-hardware test pass.
 
+## [0.8.34~beta1] - 2026-11-27
+
+### Changed
+- **Proxmox VE 9.3 support (Storage API 17).** PVE 9.3 raised the storage API
+  from 15 to 17. Without this release every Dell type still loads on 9.3, but
+  PVE warns on every `pvesm` call that the plugin implements an older API.
+  Neither new version needs anything from this plugin. Version 16's new
+  format helpers are only called from two base methods that are overridden
+  here. Version 17's new guest volume types (`vm-vol`, `vm-state`, `ct-vol`)
+  are accepted wherever `images` is, and this plugin keeps reporting `images`.
+  It does not offer the new content types, because a storage restricted to
+  `vm-state` would then refuse volumes the plugin calls `images`. PVE 9.1 and
+  9.2 are unaffected: the version is negotiated with the running PVE.
+- **PVE 9.3's add/edit storage dialog.** PVE 9.3 generates the dialog for a
+  third-party storage type from its schema. Every option now has a label
+  (`Management Address` rather than `dell-portal`). The tuning options are
+  under Advanced: the timeouts, the rescan interval, the name prefix, the
+  cluster name, the config backup settings and the lowest LUN id. Each type is
+  shown as Dell PowerStore, Dell PowerVault ME, Dell Unity XT or Dell
+  PowerFlex. No option is hidden. Earlier PVE versions ignore all of this.
+
+### Fixed
+- **A `raw+size` import accepted a stream that ended early.** `pvesm import`,
+  and the receiving side of a migration to another cluster, copied the stream
+  with `dd`, and `dd` treats any end of its input as success. If the sender
+  died or the connection dropped, the import still returned a volume id. The
+  end of that volume held whatever the array had stored there before, and PVE
+  attached it to the guest as if it were a complete copy. The number of bytes
+  received is now checked against the size in the stream header. An import
+  that received fewer or more bytes fails, and the incomplete volume is
+  deleted. PVE 9.3 added the same check for its own plugins. This plugin
+  carries its own copy, because 9.1 and 9.2 do not have it. If `dd`'s byte
+  count cannot be read, the import is refused rather than accepted. All four
+  families.
+
+### Documentation
+- **PVE 9.3's Node > SAN view lists this plugin's volumes as unused, and lets
+  them be wiped.** The new view counts a LUN as in use only if it belongs to
+  an LVM volume group, an iSCSI or NVMe-oF storage, or a process on the same
+  node has it open for writing. It has no way to recognise a third-party
+  plugin's LUNs. The volumes stay mapped to every node, so a running guest's
+  disk shows as unused on every other node. Partitions do not stop the wipe.
+  TROUBLESHOOTING explains how to tell this plugin's volumes from others
+  before using that view. Proxmox VE has no hook through which a plugin can
+  claim its LUNs. The findings were confirmed with the purestorage and netapp
+  related projects.
+
 ## [0.8.33~beta1] - 2026-10-12
 
 ### Fixed

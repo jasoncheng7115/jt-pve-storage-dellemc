@@ -6,7 +6,7 @@ Dell EMC storage plugins for Proxmox VE.
 
 > ## ⚠️ BETA SOFTWARE — READ BEFORE INSTALLING
 >
-> **This is a beta release (0.8.33~beta1). Two families have run against
+> **This is a beta release (0.8.34~beta1). Two families have run against
 > real hardware**, and two have not.
 >
 > A **PowerVault ME4024** on firmware `GT280R011-01` over Fibre Channel
@@ -50,7 +50,7 @@ the unit an operator actually thinks about.
 
 ## Project status
 
-> **Version 0.8.33~beta1 — four storage types are code complete. One has
+> **Version 0.8.34~beta1 — four storage types are code complete. One has
 > passed a full run on real hardware, PowerVault ME over Fibre Channel on an
 > ME4024, and a PowerStore has run part of one.**
 > PowerFlex and Unity XT have never been run against an array at all, and
@@ -207,7 +207,7 @@ trademarks of Proxmox Server Solutions GmbH.
 
 | Item | Requirement |
 |---|---|
-| Proxmox VE | 9.1 or later (Storage API 13) |
+| Proxmox VE | 9.1 or later (Storage API 13); 9.3 (Storage API 17) supported |
 | PowerStore OS | 3.0 or later (REST API v3); 4.x is the primary target |
 | Perl modules | `libwww-perl`, `liblwp-protocol-https-perl`, `libjson-perl`, `liburi-perl` |
 | System tools | `open-iscsi`, `multipath-tools`, `sg3-utils`, `psmisc` (`lsscsi` recommended) |
