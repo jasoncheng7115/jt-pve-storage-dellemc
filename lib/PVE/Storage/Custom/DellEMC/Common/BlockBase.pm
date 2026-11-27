@@ -3526,6 +3526,29 @@ sub volume_export {
       . " not be read. Refusing rather than sending a stream with a size"
       . " nobody checked.\n" unless defined $size && $size > 0;
 
+    # The header is the device's size and the stream is the whole device, so
+    # the two always agree, and agreement is all the receiving end can check.
+    # A device that is behind a resize agrees just as well, and the copy is
+    # then a disk with its end cut off. activate_volume grows a lagging map,
+    # but that is best effort and says nothing when it does not take. So the
+    # array's own number is the yardstick here, and not being able to read it
+    # is a refusal too (rule 20a). Larger than the array is left alone: that
+    # is rounding on the array's side, and every byte the guest wrote is in
+    # the stream.
+    my $array_name = $class->_array_volname($storeid, $volname);
+    my $vol = $class->_array_get_volume($scfg, $array_name)
+        or die "Cannot export volume '$volname': '$array_name' is not on the"
+             . " array.\n";
+    my $want = $vol->{size};
+    die "Cannot export volume '$volname': the array did not report its size,"
+      . " so whether device $device holds all of it cannot be checked.\n"
+        unless defined $want && $want > 0;
+    die "Cannot export volume '$volname': device $device is $size bytes but"
+      . " the array reports $want. This node has not caught up with a resize,"
+      . " and the export would be a truncated disk. Run 'multipathd resize"
+      . " map' for this device, or deactivate and reactivate the volume, then"
+      . " retry.\n" if $size < $want;
+
     PVE::Storage::Plugin::write_common_header($fh, $size);
     PVE::Tools::run_command(
         ['/bin/dd', "if=$device", 'bs=64k', 'status=progress'],

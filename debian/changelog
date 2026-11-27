@@ -1,3 +1,13 @@
+jt-pve-storage-dellemc (0.8.35~beta1-1) unstable; urgency=medium
+
+  * BETA RELEASE. Not for production use.
+  * Fixed: an export from a node whose map had not caught up with a resize
+    sent a truncated disk whose header and stream agreed, so nothing noticed.
+    volume_export now refuses a device smaller than the size the array
+    reports, or one whose size the array does not report.
+
+ -- Jason Cheng <jason@jason.tools>  Fri, 27 Nov 2026 18:00:00 +0800
+
 jt-pve-storage-dellemc (0.8.34~beta1-1) unstable; urgency=medium
 
   * BETA RELEASE. Not for production use.

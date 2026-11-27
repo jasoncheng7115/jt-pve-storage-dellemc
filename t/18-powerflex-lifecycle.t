@@ -415,6 +415,40 @@ ok($P->volume_rollback_is_possible($scfg, $store, 'vm-300-disk-0', 'second', [])
 }
 
 {
+    # volume_export against a device behind a resize: the header and the
+    # stream agree with each other either way, so only the array's own size
+    # tells a truncated disk from a whole one. BlockBase has the same check;
+    # this family inherits none of it (lesson 40a).
+    reset_array();
+    $P->alloc_image($store, $scfg, 100, 'raw', undef, 1024);
+    my ($want) = $P->volume_size_info($scfg, $store, 'vm-100-disk-0');
+
+    my $device_size;
+    my @sent;
+    no warnings 'redefine', 'once';
+    local *PVE::Storage::Custom::DellPowerFlexPlugin::activate_volume = sub { 1 };
+    local *PVE::Storage::Custom::DellPowerFlexPlugin::_transfer_device = sub { '/dev/nvme0n1' };
+    local *PVE::Storage::Custom::DellPowerFlexPlugin::device_size_bytes = sub { $device_size };
+    local *PVE::Storage::Plugin::write_common_header = sub { push @sent, "header $_[1]" };
+    local *PVE::Tools::run_command = sub { push @sent, 'dd'; return 0 };
+
+    $device_size = $want;
+    ok(eval { $P->volume_export($scfg, $store, \*STDOUT, 'vm-100-disk-0',
+            'raw+size', undef, undef, 0); 1 },
+        'volume_export goes ahead when the device is the size the array reports')
+        or diag $@;
+    is_deeply(\@sent, ["header $want", 'dd'], '... header first, then the copy');
+
+    @sent = ();
+    $device_size = int($want / 2);
+    ok(!eval { $P->volume_export($scfg, $store, \*STDOUT, 'vm-100-disk-0',
+            'raw+size', undef, undef, 0); 1 },
+        'volume_export refuses a device smaller than the array says');
+    like($@ // '', qr/truncated disk/, '... and says why');
+    is_deeply(\@sent, [], '... before anything is written to the stream');
+}
+
+{
     # The device a transfer would read or write has to come from the volume
     # id, not from path()'s placeholder.
     reset_array();

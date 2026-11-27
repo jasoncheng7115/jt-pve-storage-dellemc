@@ -1704,6 +1704,17 @@ sub volume_export {
       . " not be read. Refusing rather than sending a stream with a size"
       . " nobody checked.\n" unless defined $size && $size > 0;
 
+    # A device behind a resize exports as a truncated disk whose header and
+    # stream still agree; see the same check in BlockBase.
+    my $want = $class->volume_size_info($scfg, $storeid, $volname);
+    die "Cannot export volume '$volname': the array did not report its size,"
+      . " so whether device $device holds all of it cannot be checked.\n"
+        unless defined $want && $want > 0;
+    die "Cannot export volume '$volname': device $device is $size bytes but"
+      . " the array reports $want. This node has not caught up with a resize,"
+      . " and the export would be a truncated disk. Rescan the NVMe namespace"
+      . " (nvme ns-rescan) and retry.\n" if $size < $want;
+
     PVE::Storage::Plugin::write_common_header($fh, $size);
     PVE::Tools::run_command(
         ['/bin/dd', "if=$device", 'bs=64k', 'status=progress'],

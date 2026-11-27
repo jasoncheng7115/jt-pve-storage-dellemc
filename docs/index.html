@@ -175,7 +175,7 @@
     <div class="hero__glow"></div>
     <div class="hero__glow-left"></div>
     <div class="hero__content">
-        <div class="hero__badge">v0.8.34~beta1 <span class="hero__badge-sep"></span> MIT License</div>
+        <div class="hero__badge">v0.8.35~beta1 <span class="hero__badge-sep"></span> MIT License</div>
         <h1 class="hero__title">jt-pve-storage-dellemc</h1>
         <p class="hero__project-desc">
             <span class="lang-en">Dell EMC Storage Plugins for Proxmox VE</span>
@@ -1191,8 +1191,8 @@ DellPowerFlexPlugin                  <span class="comment"># no SCSI LUN, no mul
         <span class="lang-zh">驗證狀態</span>
     </h2>
     <p class="section-subtitle">
-        <span class="lang-en">3,505 unit tests run without an array or a device. What they cannot tell you is whether the endpoints exist, whether the field names are right, or whether a device ever appears &mdash; only an array can, and exactly one has.</span>
-        <span class="lang-zh">3,505 個單元測試不需要儲存伺服器或實體裝置即可執行。它們無法告訴你的是：端點是否存在、欄位名稱是否正確、裝置到底會不會出現 &mdash; 那只有儲存伺服器能回答，而目前只有一台回答過。</span>
+        <span class="lang-en">3,524 unit tests run without an array or a device. What they cannot tell you is whether the endpoints exist, whether the field names are right, or whether a device ever appears &mdash; only an array can, and exactly one has.</span>
+        <span class="lang-zh">3,524 個單元測試不需要儲存伺服器或實體裝置即可執行。它們無法告訴你的是：端點是否存在、欄位名稱是否正確、裝置到底會不會出現 &mdash; 那只有儲存伺服器能回答，而目前只有一台回答過。</span>
     </p>
 
     <h3>
@@ -1352,6 +1352,15 @@ DellPowerFlexPlugin                  <span class="comment"># no SCSI LUN, no mul
         <span class="lang-en">Changelog</span>
         <span class="lang-zh">變更紀錄</span>
     </h2>
+
+    <div class="changelog-entry">
+        <div class="changelog-version">v0.8.35~beta1</div>
+        <div class="changelog-date">2026-11-27</div>
+        <div class="changelog-summary">
+            <span class="lang-en">An export could send a disk with its end cut off. After a disk is grown on one node, another node&rsquo;s multipath map can still have the old size, and an export from there (pvesm export, a move to another storage type, a remote migration) sent the old size in the header and exactly that many bytes, so the receiving end found nothing wrong. The export now compares the device with the size the array reports and refuses if the device is smaller or the array reports no size; a device larger than the array&rsquo;s figure is the array rounding up and is allowed. All four families.</span>
+            <span class="lang-zh">匯出可能送出尾端被截掉的磁碟。磁碟在一個節點上擴充之後，另一個節點的 multipath map 可能還是舊大小，從那裡匯出（pvesm export、移到別種 storage、跨叢集移轉）時，標頭寫的是舊大小，送出的位元組數也剛好相符，接收端因此檢查不出問題。現在匯出前會拿裝置大小和儲存伺服器回報的大小比對：裝置比較小，或儲存伺服器沒有回報大小，就拒絕匯出；裝置比較大是儲存伺服器往上進位，照常匯出。四個產品系列都適用。</span>
+        </div>
+    </div>
 
     <div class="changelog-entry">
         <div class="changelog-version">v0.8.34~beta1</div>

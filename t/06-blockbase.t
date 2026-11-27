@@ -1448,6 +1448,53 @@ SKIP: {
 }
 
 {
+    # volume_export against a device that is behind a resize. The header is
+    # the device's size and the stream is the whole device, so the receiving
+    # end sees a consistent stream either way; only the array's own number
+    # tells a truncated disk from a whole one.
+    my $BB = 'PVE::Storage::Custom::DellEMC::Common::BlockBase';
+    my $scfg = { 'dell-portal' => '10.0.0.1' };
+    my $device_size;
+    my @sent;
+
+    no warnings 'redefine', 'once';
+    no strict 'refs';
+    local *Test::Plugin::activate_volume = sub { 1 };
+    local *Test::Plugin::_transfer_device =
+        sub { return ('/dev/mapper/3600a0980deadbeef', '3600a0980deadbeef') };
+    local *{"${BB}::_device_size_bytes"} = sub { $device_size };
+    local *PVE::Storage::Plugin::write_common_header = sub { push @sent, "header $_[1]" };
+    local *PVE::Tools::run_command = sub { push @sent, 'dd'; return 0 };
+
+    for my $case (
+        [8 << 20, 8 << 20, 1, 'a device the size the array reports'],
+        [8 << 20, (8 << 20) + 4096, 1, 'a device a little larger than the array says'],
+        [8 << 20, 4 << 20, 0, 'a device smaller than the array says',
+            qr/is 4194304 bytes but the array reports 8388608.*truncated/s],
+        [0, 8 << 20, 0, 'an array that reports no size',
+            qr/did not report its size/],
+    ) {
+        my ($array, $dev, $ok, $what, $re) = @$case;
+        Test::Plugin->reset_state();
+        $Test::Plugin::VOLUMES{'pve-t1-100-disk0'} = { size => $array, used => 0 };
+        $device_size = $dev;
+        @sent = ();
+
+        my $done = eval { Test::Plugin->volume_export($scfg, 't1', \*STDOUT,
+            'vm-100-disk-0', 'raw+size', undef, undef, 0); 1 };
+        my $err = $@;
+        if ($ok) {
+            ok($done, "export goes ahead for $what") or diag $err;
+            is_deeply(\@sent, ["header $dev", 'dd'], '... header first, then the copy');
+        } else {
+            ok(!$done, "export is refused for $what");
+            like($err, $re, '... and says why');
+            is_deeply(\@sent, [], '... before anything is written to the stream');
+        }
+    }
+}
+
+{
     # volume_import, driven end to end with the copy and the device layer
     # stubbed. What is being checked is everything that decides what the copy
     # writes and what happens when it fails.

@@ -7,6 +7,21 @@ Versioning: the patch number increments per release and runs to .99 before
 the minor number moves — 0.7.0, 0.7.1, … 0.7.99, then 0.8.0. Every 0.x
 release is a prerelease; 1.0.0 is the on-hardware test pass.
 
+## [0.8.35~beta1] - 2026-11-27
+
+### Fixed
+- **An export could send a disk with its end cut off.** After a disk is grown
+  on one node, the multipath map on another node can still have the old size.
+  An export from that node (`pvesm export`, a move to another storage type, a
+  remote migration) then sent the old size in the stream header and exactly
+  that many bytes, so the receiving end found nothing wrong. `activate_volume`
+  already tries to bring a lagging map up to size, but it cannot report when
+  that does not take. The export now compares the device with the size the
+  array reports, and refuses if the device is smaller or the array reports no
+  size. The message gives both numbers and how to refresh the device. A
+  device larger than the array's figure is allowed, because that is the
+  array rounding the size up. All four families.
+
 ## [0.8.34~beta1] - 2026-11-27
 
 ### Changed
